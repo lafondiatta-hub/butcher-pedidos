@@ -6,6 +6,36 @@
 <title>The Butcher - Pedidos</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { 
+    getFirestore, collection, addDoc, getDocs, doc, setDoc, updateDoc, deleteDoc,
+    query, orderBy, onSnapshot, serverTimestamp, where
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  
+  const firebaseConfig = {
+    apiKey: "AIzaSyCWu9hS9diVphJqr43IM8EmQBGg-ZGUU5Y",
+    authDomain: "butcher-pedidos.firebaseapp.com",
+    projectId: "butcher-pedidos",
+    storageBucket: "butcher-pedidos.firebasestorage.app",
+    messagingSenderId: "207535590543",
+    appId: "1:207535590543:web:5e6e286531882119c534fa"
+  };
+  
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  
+  // Exponer Firebase al scope global de la app
+  window.firebaseDB = db;
+  window.firebaseFns = {
+    collection, addDoc, getDocs, doc, setDoc, updateDoc, deleteDoc,
+    query, orderBy, onSnapshot, serverTimestamp, where
+  };
+  window.firebaseReady = true;
+  
+  // Disparar evento para que la app sepa que está lista
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -319,6 +349,17 @@ input[readonly] { background: #f5f5f5; }
 }
 
 .row-2 { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.btn-chip {
+  padding: 6px 8px; border: 1px solid #ccc; background: white;
+  border-radius: 6px; font-size: 11px; font-weight: 600;
+  cursor: pointer; font-family: inherit; color: var(--navy);
+  transition: all 0.15s;
+}
+.btn-chip:hover { background: #f5f5f5; }
+.btn-chip-green { background: #2e7d32; color: white; border-color: #2e7d32; }
+.btn-chip-green:hover { background: #1b5e20; }
+.btn-chip-red { background: white; color: #c62828; border-color: #c62828; }
+.btn-chip-red:hover { background: #ffebee; }
 .hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
 .resumen-page { background: white; border-radius: 10px; padding: 30px; }
@@ -453,36 +494,189 @@ let listasDisponibles = [];
 let carrito = [];
 let clienteSeleccionado = null;
 
-/* ============ INICIALIZACIÓN ============ */
-window.addEventListener('load', init);
+/* ============ INICIALIZACIÓN - FIREBASE ============ */
+let firebaseListo = false;
+let unsubscribers = [];
 
-function init() {
-  cargarDeLocalStorage();
-  if (productos.length === 0 || !config) {
-    renderSetup();
-  } else {
-    renderApp();
-  }
+// Esperar a que Firebase esté listo
+if (window.firebaseReady) {
+  firebaseListo = true;
+  iniciarApp();
+} else {
+  window.addEventListener('firebase-ready', () => {
+    firebaseListo = true;
+    iniciarApp();
+  });
 }
 
-function cargarDeLocalStorage() {
+async function iniciarApp() {
+  // Mostrar loading
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <h1>🥩 THE BUTCHER</h1>
+      <p>Conectando con la nube...</p>
+    </div>
+    <div class="setup-screen">
+      <div style="text-align:center; padding: 40px;">
+        <div style="font-size:40px; margin-bottom: 10px;">☁️</div>
+        <p>Cargando datos de Firebase...</p>
+      </div>
+    </div>
+  `;
+  
   try {
-    productos = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTOS) || '[]');
-    config = JSON.parse(localStorage.getItem(STORAGE_KEYS.CONFIG) || 'null');
-    pedidos = JSON.parse(localStorage.getItem(STORAGE_KEYS.PEDIDOS) || '[]');
-    clientes = JSON.parse(localStorage.getItem(STORAGE_KEYS.CLIENTES) || '[]');
-    listasDisponibles = JSON.parse(localStorage.getItem(STORAGE_KEYS.LISTAS) || '[]');
-  } catch(e) {
-    console.error('Error cargando datos:', e);
+    // Cargar todo desde Firebase
+    await cargarDesdeFirebase();
+    
+    // Si hay datos en localStorage y no hay en Firebase, ofrecer migración
+    const localData = {
+      productos: JSON.parse(localStorage.getItem('butcher_productos') || '[]'),
+      pedidos: JSON.parse(localStorage.getItem('butcher_pedidos') || '[]'),
+      clientes: JSON.parse(localStorage.getItem('butcher_clientes') || '[]'),
+    };
+    
+    const hayDatosLocales = localData.productos.length > 0 || localData.pedidos.length > 0;
+    const hayDatosNube = productos.length > 0 || pedidos.length > 0;
+    
+    if (hayDatosLocales && !hayDatosNube && !localStorage.getItem('butcher_migrated')) {
+      if (confirm('🔄 Detectamos datos guardados localmente (' + localData.pedidos.length + ' pedidos, ' + localData.clientes.length + ' clientes). ¿Querés migrarlos a la nube ahora?')) {
+        await migrarDatosLocales(localData);
+        localStorage.setItem('butcher_migrated', '1');
+        showToast('✅ Datos migrados a la nube', false, 'success');
+      } else {
+        localStorage.setItem('butcher_migrated', '1');
+      }
+    }
+    
+    // Suscribirse a cambios en tiempo real
+    suscribirseACambios();
+    
+    // Renderizar app
+    if (productos.length === 0 || !config) {
+      renderSetup();
+    } else {
+      renderApp();
+    }
+  } catch (err) {
+    console.error('Error iniciando app:', err);
+    document.getElementById('app').innerHTML = `
+      <div class="header">
+        <h1>🥩 THE BUTCHER</h1>
+        <p>Error de conexión</p>
+      </div>
+      <div class="setup-screen">
+        <p style="color:red;">❌ Error conectando con Firebase: ${err.message}</p>
+        <button class="btn btn-primary" onclick="location.reload()" style="margin-top:20px;">Reintentar</button>
+      </div>
+    `;
   }
 }
 
-function guardarEnLocalStorage() {
-  localStorage.setItem(STORAGE_KEYS.PRODUCTOS, JSON.stringify(productos));
-  localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
-  localStorage.setItem(STORAGE_KEYS.PEDIDOS, JSON.stringify(pedidos));
-  localStorage.setItem(STORAGE_KEYS.CLIENTES, JSON.stringify(clientes));
-  localStorage.setItem(STORAGE_KEYS.LISTAS, JSON.stringify(listasDisponibles));
+async function cargarDesdeFirebase() {
+  const { collection, getDocs, doc, query, orderBy } = window.firebaseFns;
+  const db = window.firebaseDB;
+  
+  // Cargar config
+  try {
+    const configDocs = await getDocs(collection(db, 'config'));
+    if (!configDocs.empty) {
+      const configData = configDocs.docs[0].data();
+      config = configData;
+      listasDisponibles = configData.listasDisponibles || [];
+    } else {
+      config = null;
+    }
+  } catch(e) { console.error('Error cargando config:', e); }
+  
+  // Cargar productos
+  try {
+    const productosDocs = await getDocs(collection(db, 'productos'));
+    productos = productosDocs.docs.map(d => ({ _id: d.id, ...d.data() }));
+  } catch(e) { console.error('Error cargando productos:', e); productos = []; }
+  
+  // Cargar clientes
+  try {
+    const clientesDocs = await getDocs(collection(db, 'clientes'));
+    clientes = clientesDocs.docs.map(d => ({ _id: d.id, ...d.data() }));
+  } catch(e) { console.error('Error cargando clientes:', e); clientes = []; }
+  
+  // Cargar pedidos (ordenados por fecha desc)
+  try {
+    const q = query(collection(db, 'pedidos'), orderBy('timestamp', 'desc'));
+    const pedidosDocs = await getDocs(q);
+    pedidos = pedidosDocs.docs.map(d => ({ _id: d.id, ...d.data() }));
+  } catch(e) { console.error('Error cargando pedidos:', e); pedidos = []; }
+}
+
+function suscribirseACambios() {
+  const { collection, onSnapshot, query, orderBy } = window.firebaseFns;
+  const db = window.firebaseDB;
+  
+  // Limpiar suscripciones anteriores
+  unsubscribers.forEach(u => u());
+  unsubscribers = [];
+  
+  // Suscribirse a pedidos en tiempo real
+  const unsubPedidos = onSnapshot(
+    query(collection(db, 'pedidos'), orderBy('timestamp', 'desc')),
+    (snapshot) => {
+      pedidos = snapshot.docs.map(d => ({ _id: d.id, ...d.data() }));
+      // Re-renderizar vista activa si corresponde
+      const vista = document.getElementById('app').getAttribute('data-vista');
+      if (vista === 'pedidos') renderPedidos();
+      if (vista === 'main') actualizarContadorPedidos();
+    }
+  );
+  unsubscribers.push(unsubPedidos);
+  
+  // Suscribirse a clientes
+  const unsubClientes = onSnapshot(collection(db, 'clientes'), (snapshot) => {
+    clientes = snapshot.docs.map(d => ({ _id: d.id, ...d.data() }));
+  });
+  unsubscribers.push(unsubClientes);
+}
+
+async function migrarDatosLocales(localData) {
+  const { collection, addDoc, setDoc, doc } = window.firebaseFns;
+  const db = window.firebaseDB;
+  
+  // Migrar productos
+  for (const p of localData.productos) {
+    await addDoc(collection(db, 'productos'), p);
+  }
+  productos = localData.productos;
+  
+  // Migrar config
+  const configLocal = JSON.parse(localStorage.getItem('butcher_config') || 'null');
+  const listasLocal = JSON.parse(localStorage.getItem('butcher_listas_disponibles') || '[]');
+  if (configLocal) {
+    await setDoc(doc(db, 'config', 'main'), { ...configLocal, listasDisponibles: listasLocal });
+    config = configLocal;
+    listasDisponibles = listasLocal;
+  }
+  
+  // Migrar clientes
+  const clientesMigrados = [];
+  for (const c of localData.clientes) {
+    const ref = await addDoc(collection(db, 'clientes'), c);
+    clientesMigrados.push({ _id: ref.id, ...c });
+  }
+  clientes = clientesMigrados;
+  
+  // Migrar pedidos (con estado inicial "pendiente")
+  const pedidosMigrados = [];
+  for (const p of localData.pedidos) {
+    const pedidoConEstado = {
+      ...p,
+      estado: p.estado || 'pendiente',
+      metodoPago: p.metodoPago || '',
+      fechaPago: p.fechaPago || '',
+      timestamp: p.timestamp || new Date().toISOString()
+    };
+    const ref = await addDoc(collection(db, 'pedidos'), pedidoConEstado);
+    pedidosMigrados.push({ _id: ref.id, ...pedidoConEstado });
+  }
+  pedidos = pedidosMigrados;
 }
 
 /* ============ PANTALLA DE SETUP (primera vez) ============ */
@@ -520,7 +714,7 @@ function onExcelUpload(event) {
   showToast('Procesando Excel...');
   
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, { type: 'array' });
@@ -586,22 +780,41 @@ function onExcelUpload(event) {
       
       if (productosNuevos.length === 0) throw new Error('No se encontraron productos válidos');
       
-      // Guardar
-      productos = productosNuevos;
+      // Guardar en Firebase
+      const { collection, addDoc, setDoc, doc, getDocs, deleteDoc } = window.firebaseFns;
+      const db = window.firebaseDB;
+      
+      // Borrar productos viejos
+      const viejosDocs = await getDocs(collection(db, 'productos'));
+      for (const d of viejosDocs.docs) {
+        await deleteDoc(doc(db, 'productos', d.id));
+      }
+      
+      // Agregar productos nuevos
+      const productosGuardados = [];
+      for (const p of productosNuevos) {
+        const ref = await addDoc(collection(db, 'productos'), p);
+        productosGuardados.push({ _id: ref.id, ...p });
+      }
+      productos = productosGuardados;
       listasDisponibles = colsPrecios.map(c => c.nombre);
       
-      // Si no hay config, inicializar con últimos valores
+      // Actualizar config
       if (!config) {
         config = {
           alias: 'thebutcher.lemon',
           titular: 'Juan Pablo Aduna',
-          listaActiva: listasDisponibles[listasDisponibles.length - 1] // la última (más reciente)
+          listaActiva: listasDisponibles[listasDisponibles.length - 1],
+          listasDisponibles: listasDisponibles
         };
       } else if (!listasDisponibles.includes(config.listaActiva)) {
         config.listaActiva = listasDisponibles[listasDisponibles.length - 1];
+        config.listasDisponibles = listasDisponibles;
+      } else {
+        config.listasDisponibles = listasDisponibles;
       }
       
-      guardarEnLocalStorage();
+      await setDoc(doc(db, 'config', 'main'), config);
       
       showToast(`✓ ${productosNuevos.length} productos cargados · ${listasDisponibles.length} listas de precios`, false, 'success');
       setTimeout(() => renderApp(), 800);
@@ -699,19 +912,25 @@ function renderApp() {
     </div>
     
     <div class="card" style="margin-top: 20px;">
+      <h2>💰 Seguimiento de Pagos</h2>
+      <div id="dashboardStats" style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+        ${renderDashboardStats()}
+      </div>
+      <button class="btn btn-primary" onclick="renderPedidos()">📋 Ver todos los pedidos</button>
+    </div>
+    
+    <div class="card" style="margin-top: 20px;">
       <h2>⚙️ Herramientas</h2>
       <div class="menu-buttons">
         <button class="btn btn-secondary" onclick="abrirConfig()">⚙️ Configuración</button>
         <button class="btn btn-secondary" onclick="actualizarPrecios()">🔄 Actualizar precios</button>
-        <button class="btn btn-secondary" onclick="exportarBackup()">💾 Exportar backup</button>
-        <button class="btn btn-secondary" onclick="importarBackup()">📥 Importar backup</button>
-        <button class="btn btn-secondary" onclick="exportarPedidosExcel()">📊 Exportar pedidos a Excel</button>
-        <button class="btn btn-secondary" onclick="verHistorial()">📜 Ver historial (${pedidos.length})</button>
+        <button class="btn btn-secondary" onclick="exportarPedidosExcel()">📊 Exportar a Excel</button>
       </div>
     </div>
   `;
   
   // Fecha de hoy por defecto
+  document.getElementById('app').setAttribute('data-vista', 'main');
   document.getElementById('fecha').valueAsDate = new Date();
   document.getElementById('listaPrecios').value = config.listaActiva;
   
@@ -993,37 +1212,55 @@ function generarResumen() {
     timestamp: new Date().toISOString()
   };
   
-  // Upsert cliente
-  const clienteNorm = normalizar(cliente);
-  let clienteIdx = clientes.findIndex(c => normalizar(c.nombre) === clienteNorm);
+  // Guardar en Firebase de forma async
+  (async () => {
+    try {
+      const { collection, addDoc, updateDoc, doc } = window.firebaseFns;
+      const db = window.firebaseDB;
+      
+      // Upsert cliente en Firebase
+      const clienteNorm = normalizar(cliente);
+      let clienteExistente = clientes.find(c => normalizar(c.nombre) === clienteNorm);
+      
+      if (clienteExistente) {
+        const updates = {
+          ultimoPedido: fecha,
+          cantPedidos: (clienteExistente.cantPedidos || 0) + 1,
+          totalGastado: (clienteExistente.totalGastado || 0) + total
+        };
+        if (telefono && !clienteExistente.telefono) updates.telefono = telefono;
+        if (direccion && !clienteExistente.direccion) updates.direccion = direccion;
+        await updateDoc(doc(db, 'clientes', clienteExistente._id), updates);
+      } else {
+        const nuevoCliente = {
+          nombre: cliente,
+          telefono: telefono,
+          direccion: direccion,
+          fechaAlta: fecha,
+          ultimoPedido: fecha,
+          cantPedidos: 1,
+          totalGastado: total,
+          notas: ''
+        };
+        await addDoc(collection(db, 'clientes'), nuevoCliente);
+        showToast('✓ Cliente nuevo agregado a tu base', false, 'success');
+      }
+      
+      // Agregar estado de pago inicial al pedido
+      pedido.estado = 'pendiente';
+      pedido.metodoPago = '';
+      pedido.fechaPago = '';
+      
+      // Guardar pedido en Firebase
+      await addDoc(collection(db, 'pedidos'), pedido);
+      
+    } catch(err) {
+      console.error('Error guardando en Firebase:', err);
+      showToast('⚠️ Error guardando en la nube, pero el resumen se generó', true);
+    }
+  })();
   
-  if (clienteIdx >= 0) {
-    const c = clientes[clienteIdx];
-    if (telefono && !c.telefono) c.telefono = telefono;
-    if (direccion && !c.direccion) c.direccion = direccion;
-    c.ultimoPedido = fecha;
-    c.cantPedidos = (c.cantPedidos || 0) + 1;
-    c.totalGastado = (c.totalGastado || 0) + total;
-  } else {
-    clientes.push({
-      id: 'CLI-' + Date.now(),
-      nombre: cliente,
-      telefono: telefono,
-      direccion: direccion,
-      fechaAlta: fecha,
-      ultimoPedido: fecha,
-      cantPedidos: 1,
-      totalGastado: total,
-      notas: ''
-    });
-    showToast('✓ Cliente nuevo agregado a tu base', false, 'success');
-  }
-  
-  // Guardar pedido
-  pedidos.push(pedido);
-  guardarEnLocalStorage();
-  
-  // Mostrar resumen
+  // Mostrar resumen inmediatamente (sin esperar a Firebase)
   sessionStorage.setItem('pedidoActual', JSON.stringify(pedido));
   renderResumen(pedido);
 }
@@ -1189,14 +1426,22 @@ function cerrarConfig() {
   document.getElementById('modalConfig').classList.remove('active');
 }
 
-function guardarConfig() {
+async function guardarConfig() {
   config.alias = document.getElementById('cfgAlias').value.trim() || 'thebutcher.lemon';
   config.titular = document.getElementById('cfgTitular').value.trim() || 'Juan Pablo Aduna';
   config.listaActiva = document.getElementById('cfgLista').value;
-  guardarEnLocalStorage();
-  cerrarConfig();
-  renderApp();
-  showToast('✓ Configuración guardada', false, 'success');
+  config.listasDisponibles = listasDisponibles;
+  
+  try {
+    const { setDoc, doc } = window.firebaseFns;
+    const db = window.firebaseDB;
+    await setDoc(doc(db, 'config', 'main'), config);
+    cerrarConfig();
+    renderApp();
+    showToast('✓ Configuración guardada', false, 'success');
+  } catch(err) {
+    showToast('Error: ' + err.message, true);
+  }
 }
 
 /* ============ ACTUALIZAR PRECIOS ============ */
@@ -1357,6 +1602,234 @@ function verHistorial() {
   `;
   document.getElementById('app').innerHTML = html;
   window.scrollTo(0, 0);
+}
+
+
+/* ============ DASHBOARD + SEGUIMIENTO DE PAGOS ============ */
+function renderDashboardStats() {
+  const ahora = new Date();
+  const mesActual = ahora.getMonth();
+  const anioActual = ahora.getFullYear();
+  
+  let porCobrar = 0;
+  let cobradoMes = 0;
+  let cantPendientes = 0;
+  let cantMes = 0;
+  
+  pedidos.forEach(p => {
+    const fechaPedido = new Date(p.fecha);
+    const esMesActual = fechaPedido.getMonth() === mesActual && fechaPedido.getFullYear() === anioActual;
+    
+    if (p.estado === 'pagado') {
+      if (esMesActual) cobradoMes += (p.totalFinal || 0);
+    } else if (p.estado === 'parcial') {
+      porCobrar += (p.totalFinal || 0) - (p.montoParcial || 0);
+      cantPendientes++;
+    } else {
+      // pendiente (default)
+      porCobrar += (p.totalFinal || 0);
+      cantPendientes++;
+    }
+    
+    if (esMesActual) cantMes++;
+  });
+  
+  return `
+    <div style="background:#fff3e0; padding:12px; border-radius:8px; border-left:3px solid #f57c00;">
+      <div style="font-size:11px; color:#666; text-transform:uppercase;">Por cobrar</div>
+      <div style="font-size:18px; font-weight:700; color:#e65100;">$${formatNum(porCobrar)}</div>
+      <div style="font-size:10px; color:#999;">${cantPendientes} pedido${cantPendientes !== 1 ? 's' : ''}</div>
+    </div>
+    <div style="background:#e8f5e9; padding:12px; border-radius:8px; border-left:3px solid #2e7d32;">
+      <div style="font-size:11px; color:#666; text-transform:uppercase;">Cobrado este mes</div>
+      <div style="font-size:18px; font-weight:700; color:#1b5e20;">$${formatNum(cobradoMes)}</div>
+      <div style="font-size:10px; color:#999;">${cantMes} pedido${cantMes !== 1 ? 's' : ''} del mes</div>
+    </div>
+  `;
+}
+
+function actualizarContadorPedidos() {
+  const el = document.getElementById('dashboardStats');
+  if (el) el.innerHTML = renderDashboardStats();
+}
+
+let filtroEstado = 'todos';
+let filtroCliente = '';
+
+function renderPedidos() {
+  document.getElementById('app').setAttribute('data-vista', 'pedidos');
+  
+  const pedidosFiltrados = pedidos.filter(p => {
+    if (filtroEstado !== 'todos') {
+      const estado = p.estado || 'pendiente';
+      if (estado !== filtroEstado) return false;
+    }
+    if (filtroCliente && !normalizar(p.cliente).includes(normalizar(filtroCliente))) {
+      return false;
+    }
+    return true;
+  });
+  
+  const totalPorCobrar = pedidosFiltrados
+    .filter(p => (p.estado || 'pendiente') !== 'pagado')
+    .reduce((s, p) => s + (p.totalFinal - (p.montoParcial || 0)), 0);
+  
+  const html = `
+    <div class="header">
+      <h1>🥩 THE BUTCHER</h1>
+      <p>Seguimiento de Pedidos</p>
+    </div>
+    
+    <div class="card">
+      <h2>🔍 Filtros</h2>
+      <div class="form-row-full">
+        <label>Estado</label>
+        <select id="filtroEstado" onchange="cambiarFiltroEstado(this.value)">
+          <option value="todos" ${filtroEstado === 'todos' ? 'selected' : ''}>Todos</option>
+          <option value="pendiente" ${filtroEstado === 'pendiente' ? 'selected' : ''}>⏳ Pendientes</option>
+          <option value="parcial" ${filtroEstado === 'parcial' ? 'selected' : ''}>💵 Pago parcial</option>
+          <option value="pagado" ${filtroEstado === 'pagado' ? 'selected' : ''}>✅ Pagados</option>
+        </select>
+      </div>
+      <div class="form-row-full">
+        <label>Buscar cliente</label>
+        <input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre del cliente">
+      </div>
+      <div style="background:#fff3e0; padding:10px; border-radius:6px; text-align:center; margin-top:10px;">
+        <div style="font-size:12px; color:#666;">Total por cobrar (filtrado)</div>
+        <div style="font-size:20px; font-weight:700; color:#e65100;">$${formatNum(totalPorCobrar)}</div>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>📋 Pedidos (${pedidosFiltrados.length})</h2>
+      ${pedidosFiltrados.length === 0 ? 
+        '<div class="cart-empty">No hay pedidos con estos filtros</div>' :
+        pedidosFiltrados.map(p => renderPedidoCard(p)).join('')
+      }
+    </div>
+    
+    <button class="btn btn-add" onclick="renderApp()" style="margin-top: 10px;">← Volver</button>
+  `;
+  
+  document.getElementById('app').innerHTML = html;
+  window.scrollTo(0, 0);
+}
+
+function renderPedidoCard(p) {
+  const estado = p.estado || 'pendiente';
+  const colores = {
+    pendiente: { bg: '#fff3e0', border: '#f57c00', text: '#e65100', label: '⏳ Pendiente' },
+    parcial: { bg: '#fff9c4', border: '#f9a825', text: '#f57f17', label: '💵 Parcial' },
+    pagado: { bg: '#e8f5e9', border: '#2e7d32', text: '#1b5e20', label: '✅ Pagado' }
+  };
+  const c = colores[estado] || colores.pendiente;
+  const metodoPagoLabel = p.metodoPago ? ` · ${p.metodoPago}` : '';
+  
+  return `
+    <div style="background:${c.bg}; border-left:3px solid ${c.border}; padding:12px; border-radius:8px; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:start; gap:10px; margin-bottom:8px;">
+        <div style="flex:1;">
+          <div style="font-weight:700; color:var(--navy); font-size:15px;">${escapeHtml(p.cliente)}</div>
+          <div style="font-size:11px; color:#666;">${formatFecha(p.fecha)} · ${p.items.length} ítem${p.items.length !== 1 ? 's' : ''}${metodoPagoLabel}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:700; font-size:16px; color:var(--navy);">$${formatNum(p.totalFinal)}</div>
+          <div style="font-size:10px; font-weight:600; color:${c.text}; margin-top:2px;">${c.label}</div>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:6px; margin-top:8px;">
+        ${estado !== 'pagado' ? `<button class="btn-chip btn-chip-green" onclick="marcarPagado('${p._id}')">✅ Pagado</button>` : `<button class="btn-chip" onclick="marcarPendiente('${p._id}')">↩️ Pendiente</button>`}
+        <button class="btn-chip" onclick="verDetallePedido('${p._id}')">👁️ Ver</button>
+        <button class="btn-chip btn-chip-red" onclick="eliminarPedido('${p._id}')">🗑️ Eliminar</button>
+      </div>
+    </div>
+  `;
+}
+
+function cambiarFiltroEstado(valor) {
+  filtroEstado = valor;
+  renderPedidos();
+}
+
+function cambiarFiltroCliente(valor) {
+  filtroCliente = valor;
+  // Debounce simple
+  clearTimeout(window._filtroTimeout);
+  window._filtroTimeout = setTimeout(() => renderPedidos(), 300);
+}
+
+async function marcarPagado(pedidoId) {
+  const pedido = pedidos.find(p => p._id === pedidoId);
+  if (!pedido) return;
+  
+  const metodo = prompt('Método de pago:\n\n1 = Transferencia\n2 = Efectivo\n3 = Mercado Pago\n4 = Otro\n\nIngresá el número o escribilo:', '1');
+  if (!metodo) return;
+  
+  let metodoFinal = metodo.trim();
+  const mapa = { '1': 'Transferencia', '2': 'Efectivo', '3': 'Mercado Pago', '4': 'Otro' };
+  if (mapa[metodoFinal]) metodoFinal = mapa[metodoFinal];
+  
+  try {
+    const { updateDoc, doc } = window.firebaseFns;
+    const db = window.firebaseDB;
+    await updateDoc(doc(db, 'pedidos', pedidoId), {
+      estado: 'pagado',
+      metodoPago: metodoFinal,
+      fechaPago: new Date().toISOString().slice(0, 10)
+    });
+    showToast('✅ Pedido marcado como pagado', false, 'success');
+  } catch(err) {
+    showToast('Error: ' + err.message, true);
+  }
+}
+
+async function marcarPendiente(pedidoId) {
+  if (!confirm('¿Marcar este pedido como pendiente de nuevo?')) return;
+  try {
+    const { updateDoc, doc } = window.firebaseFns;
+    const db = window.firebaseDB;
+    await updateDoc(doc(db, 'pedidos', pedidoId), {
+      estado: 'pendiente',
+      metodoPago: '',
+      fechaPago: ''
+    });
+    showToast('↩️ Marcado como pendiente', false, 'success');
+  } catch(err) {
+    showToast('Error: ' + err.message, true);
+  }
+}
+
+function verDetallePedido(pedidoId) {
+  const pedido = pedidos.find(p => p._id === pedidoId);
+  if (!pedido) return;
+  sessionStorage.setItem('pedidoActual', JSON.stringify(pedido));
+  renderResumen(pedido);
+}
+
+async function eliminarPedido(pedidoId) {
+  const pedido = pedidos.find(p => p._id === pedidoId);
+  if (!pedido) return;
+  if (!confirm(`¿Eliminar el pedido de "${pedido.cliente}" por $${formatNum(pedido.totalFinal)}?\n\nEsta acción no se puede deshacer.`)) return;
+  
+  try {
+    const { deleteDoc, doc, updateDoc } = window.firebaseFns;
+    const db = window.firebaseDB;
+    await deleteDoc(doc(db, 'pedidos', pedidoId));
+    
+    // Actualizar cliente (restar del total gastado)
+    const cliente = clientes.find(c => normalizar(c.nombre) === normalizar(pedido.cliente));
+    if (cliente) {
+      await updateDoc(doc(db, 'clientes', cliente._id), {
+        cantPedidos: Math.max(0, (cliente.cantPedidos || 1) - 1),
+        totalGastado: Math.max(0, (cliente.totalGastado || 0) - (pedido.totalFinal || 0))
+      });
+    }
+    
+    showToast('🗑️ Pedido eliminado', false, 'success');
+  } catch(err) {
+    showToast('Error: ' + err.message, true);
+  }
 }
 
 /* ============ HELPERS ============ */
