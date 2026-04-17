@@ -1914,27 +1914,32 @@ function renderPedidos() {
 function renderPedidoCard(p) {
   const estado = p.estado || 'pendiente';
   const colores = {
-    pendiente: { bg: '#fff3e0', border: '#f57c00', text: '#e65100', label: '⏳ Pendiente' },
-    parcial: { bg: '#fff9c4', border: '#f9a825', text: '#f57f17', label: '💵 Parcial' },
-    pagado: { bg: '#e8f5e9', border: '#2e7d32', text: '#1b5e20', label: '✅ Pagado' }
+    pendiente: { bg: '#fff3e0', border: '#f57c00', text: '#e65100', chipBg: '#f57c00', label: '⏳ PENDIENTE' },
+    parcial: { bg: '#fff9c4', border: '#f9a825', text: '#f57f17', chipBg: '#f9a825', label: '💵 PARCIAL' },
+    pagado: { bg: '#e8f5e9', border: '#2e7d32', text: '#1b5e20', chipBg: '#2e7d32', label: '✅ PAGADO' }
   };
   const c = colores[estado] || colores.pendiente;
   const metodoPagoLabel = p.metodoPago ? ` · ${p.metodoPago}` : '';
   
+  // Badge de estado bien visible arriba a la derecha
+  const estadoBadge = `<span style="display:inline-block; background:${c.chipBg}; color:white; font-size:10px; font-weight:700; padding:3px 8px; border-radius:10px; letter-spacing:0.5px;">${c.label}</span>`;
+  
   return `
-    <div style="background:${c.bg}; border-left:3px solid ${c.border}; padding:12px; border-radius:8px; margin-bottom:10px;">
+    <div style="background:${c.bg}; border-left:4px solid ${c.border}; padding:12px; border-radius:8px; margin-bottom:10px;">
       <div style="display:flex; justify-content:space-between; align-items:start; gap:10px; margin-bottom:8px;">
         <div style="flex:1;">
-          <div style="font-weight:700; color:var(--navy); font-size:15px;">${escapeHtml(p.cliente)}</div>
-          <div style="font-size:11px; color:#666;">${formatFecha(p.fecha)} · ${p.items.length} ítem${p.items.length !== 1 ? 's' : ''}${metodoPagoLabel}</div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <div style="font-weight:700; color:var(--navy); font-size:15px;">${escapeHtml(p.cliente)}</div>
+            ${estadoBadge}
+          </div>
+          <div style="font-size:11px; color:#666; margin-top:4px;">${formatFecha(p.fecha)} · ${p.items.length} ítem${p.items.length !== 1 ? 's' : ''}${metodoPagoLabel}</div>
         </div>
         <div style="text-align:right;">
           <div style="font-weight:700; font-size:16px; color:var(--navy);">$${formatNum(p.totalFinal)}</div>
-          <div style="font-size:10px; font-weight:600; color:${c.text}; margin-top:2px;">${c.label}</div>
         </div>
       </div>
       <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:6px; margin-top:8px;">
-        ${estado !== 'pagado' ? `<button class="btn-chip btn-chip-green" onclick="marcarPagado('${p._id}')">✅ Pagado</button>` : `<button class="btn-chip" onclick="marcarPendiente('${p._id}')">↩️ Pendiente</button>`}
+        ${estado !== 'pagado' ? `<button class="btn-chip btn-chip-green" onclick="marcarPagado('${p._id}')">💰 Marcar pagado</button>` : `<button class="btn-chip" onclick="marcarPendiente('${p._id}')">↩️ Revertir a pendiente</button>`}
         <button class="btn-chip" onclick="verDetallePedido('${p._id}')">👁️ Ver</button>
         <button class="btn-chip btn-chip-red" onclick="eliminarPedido('${p._id}')">🗑️ Eliminar</button>
       </div>
