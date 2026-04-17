@@ -360,6 +360,29 @@ input[readonly] { background: #f5f5f5; }
 .btn-chip-green:hover { background: #1b5e20; }
 .btn-chip-red { background: white; color: #c62828; border-color: #c62828; }
 .btn-chip-red:hover { background: #ffebee; }
+
+.metodo-pago-btn, .tipo-pago-btn {
+  padding: 14px 10px;
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--navy);
+  transition: all 0.15s;
+  text-align: center;
+}
+.metodo-pago-btn:hover, .tipo-pago-btn:hover {
+  border-color: var(--navy);
+  background: var(--cream);
+}
+.metodo-pago-btn.selected, .tipo-pago-btn.selected {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: white;
+}
 .hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
 .resumen-page { background: white; border-radius: 10px; padding: 30px; }
@@ -421,6 +444,52 @@ input[readonly] { background: #f5f5f5; }
 
 <div class="container" id="app">
 <!-- El contenido se renderiza con JS -->
+</div>
+
+<!-- MODAL COBRO -->
+<div class="modal-overlay" id="modalCobro">
+  <div class="modal" style="max-width:520px;">
+    <h3>💰 Registrar cobro</h3>
+    
+    <div id="cobroPedidoInfo" style="background:var(--cream); padding:12px; border-radius:8px; margin-bottom:16px;"></div>
+    
+    <label style="margin-bottom:8px;">Tipo de pago</label>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
+      <button class="tipo-pago-btn selected" data-tipo="completo" onclick="toggleTipoPago('completo')">✅ Pago completo</button>
+      <button class="tipo-pago-btn" data-tipo="parcial" onclick="toggleTipoPago('parcial')">💵 Pago parcial</button>
+    </div>
+    <input type="hidden" id="cobroTipo" value="completo">
+    
+    <div id="cobroSeccionParcial" style="display:none; margin-bottom:16px;">
+      <label>Monto cobrado (parcial)</label>
+      <input type="number" id="cobroMontoParcial" step="0.01" min="0" placeholder="Ej: 25000">
+      <div class="hint">Cuánto te pagaron de este pedido</div>
+    </div>
+    
+    <label style="margin-bottom:8px;">Método de pago</label>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
+      <button class="metodo-pago-btn" onclick="seleccionarMetodo(this, 'Transferencia')">💳 Transferencia</button>
+      <button class="metodo-pago-btn" onclick="seleccionarMetodo(this, 'Efectivo')">💵 Efectivo</button>
+      <button class="metodo-pago-btn" onclick="seleccionarMetodo(this, 'Mercado Pago')">📱 Mercado Pago</button>
+      <button class="metodo-pago-btn" onclick="seleccionarMetodo(this, 'Otro')">📝 Otro</button>
+    </div>
+    <input type="hidden" id="cobroMetodo" value="">
+    
+    <div class="form-row-full">
+      <label>Fecha de cobro</label>
+      <input type="date" id="cobroFecha">
+    </div>
+    
+    <div class="form-row-full">
+      <label>Notas (opcional)</label>
+      <input type="text" id="cobroNotas" placeholder="Ej: pago entregado en mano">
+    </div>
+    
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px;">
+      <button class="btn btn-primary" onclick="confirmarCobro()">Confirmar cobro</button>
+      <button class="btn btn-secondary" onclick="cerrarModalCobro()">Cancelar</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1508,61 +1577,178 @@ function importarBackup() {
   inp.click();
 }
 
-/* ============ EXPORTAR PEDIDOS A EXCEL ============ */
+/* ============ EXPORTAR PEDIDOS A EXCEL (V2) ============ */
 function exportarPedidosExcel() {
   if (pedidos.length === 0) {
     showToast('No hay pedidos para exportar', true);
     return;
   }
   
-  // Armar filas (1 por cada ítem de cada pedido)
-  const filas = [
-    ['ID Pedido', 'Fecha', 'Cliente', 'Teléfono', 'Dirección', 'Lista Precios',
-     'Producto', 'Tipo', 'Peso/Cantidad', 'Precio Unit', 'Subtotal',
-     'Subtotal Pedido', 'Descuento %', 'Descuento $', 'Total Final']
-  ];
+  const wb = XLSX.utils.book_new();
   
+  /* HOJA 1: PEDIDOS (1 fila por pedido - para tablas dinamicas) */
+  const filasPedidos = [
+    ['ID', 'Fecha', 'Cliente', 'Telefono', 'Direccion', 'Lista Precios',
+     'Cant. Items', 'Subtotal', 'Descuento %', 'Descuento $', 'Total',
+     'Estado', 'Metodo Pago', 'Fecha Cobro', 'Monto Cobrado', 'Saldo Pendiente', 'Notas Cobro']
+  ];
   pedidos.forEach(p => {
-    p.items.forEach((item, i) => {
-      filas.push([
-        p.id,
+    const estado = p.estado || 'pendiente';
+    const montoCobrado = estado === 'pagado' ? p.totalFinal : (p.montoParcial || 0);
+    const saldo = p.totalFinal - montoCobrado;
+    filasPedidos.push([
+      p.id || p._id,
+      p.fecha,
+      p.cliente,
+      p.telefono || '',
+      p.direccion || '',
+      p.listaPrecios,
+      p.items.length,
+      p.subtotalPedido,
+      p.descuentoPct || 0,
+      p.descuentoMonto || 0,
+      p.totalFinal,
+      estado,
+      p.metodoPago || '',
+      p.fechaPago || '',
+      montoCobrado,
+      saldo,
+      p.notasCobro || ''
+    ]);
+  });
+  const wsPedidos = XLSX.utils.aoa_to_sheet(filasPedidos);
+  XLSX.utils.book_append_sheet(wb, wsPedidos, 'Pedidos');
+  
+  /* HOJA 2: DETALLE DE ITEMS (1 fila por producto de cada pedido) */
+  const filasDetalle = [
+    ['ID Pedido', 'Fecha', 'Cliente', 'Producto', 'Tipo', 'Peso/Cantidad', 'Precio Unit', 'Subtotal']
+  ];
+  pedidos.forEach(p => {
+    p.items.forEach(item => {
+      filasDetalle.push([
+        p.id || p._id,
         p.fecha,
         p.cliente,
-        p.telefono || '',
-        p.direccion || '',
-        p.listaPrecios,
         item.producto,
         item.tipo,
         item.pesoOCantidad,
         item.precio,
-        item.subtotal,
-        i === 0 ? p.subtotalPedido : '',
-        i === 0 ? (p.descuentoPct || 0) : '',
-        i === 0 ? (p.descuentoMonto || 0) : '',
-        i === 0 ? p.totalFinal : ''
+        item.subtotal
       ]);
     });
   });
+  const wsDetalle = XLSX.utils.aoa_to_sheet(filasDetalle);
+  XLSX.utils.book_append_sheet(wb, wsDetalle, 'Detalle Items');
   
-  // Crear workbook con 2 hojas: Pedidos y Clientes
-  const wb = XLSX.utils.book_new();
-  const wsPedidos = XLSX.utils.aoa_to_sheet(filas);
-  XLSX.utils.book_append_sheet(wb, wsPedidos, 'Pedidos');
+  /* HOJA 3: RESUMEN MENSUAL */
+  const resumenPorMes = {};
+  pedidos.forEach(p => {
+    const mes = p.fecha ? p.fecha.slice(0, 7) : 'Sin fecha'; // YYYY-MM
+    if (!resumenPorMes[mes]) {
+      resumenPorMes[mes] = {
+        cantPedidos: 0, facturado: 0, cobrado: 0, pendiente: 0,
+        transferencia: 0, efectivo: 0, mercadopago: 0, otro: 0
+      };
+    }
+    const r = resumenPorMes[mes];
+    r.cantPedidos++;
+    r.facturado += (p.totalFinal || 0);
+    
+    const estado = p.estado || 'pendiente';
+    if (estado === 'pagado') {
+      r.cobrado += (p.totalFinal || 0);
+      const metodo = (p.metodoPago || '').toLowerCase();
+      if (metodo.includes('transfer')) r.transferencia += p.totalFinal;
+      else if (metodo.includes('efectivo')) r.efectivo += p.totalFinal;
+      else if (metodo.includes('mercado')) r.mercadopago += p.totalFinal;
+      else r.otro += p.totalFinal;
+    } else if (estado === 'parcial') {
+      r.cobrado += (p.montoParcial || 0);
+      r.pendiente += (p.totalFinal - (p.montoParcial || 0));
+      const metodo = (p.metodoPago || '').toLowerCase();
+      const monto = p.montoParcial || 0;
+      if (metodo.includes('transfer')) r.transferencia += monto;
+      else if (metodo.includes('efectivo')) r.efectivo += monto;
+      else if (metodo.includes('mercado')) r.mercadopago += monto;
+      else r.otro += monto;
+    } else {
+      r.pendiente += (p.totalFinal || 0);
+    }
+  });
   
+  const mesesOrdenados = Object.keys(resumenPorMes).sort();
+  const filasResumen = [
+    ['Mes', 'Cant. Pedidos', 'Facturado', 'Cobrado', 'Pendiente',
+     'Transferencia', 'Efectivo', 'Mercado Pago', 'Otro']
+  ];
+  mesesOrdenados.forEach(mes => {
+    const r = resumenPorMes[mes];
+    filasResumen.push([
+      mes, r.cantPedidos, r.facturado, r.cobrado, r.pendiente,
+      r.transferencia, r.efectivo, r.mercadopago, r.otro
+    ]);
+  });
+  // Fila de totales
+  if (mesesOrdenados.length > 0) {
+    const tot = { cantPedidos: 0, facturado: 0, cobrado: 0, pendiente: 0, transferencia: 0, efectivo: 0, mercadopago: 0, otro: 0 };
+    mesesOrdenados.forEach(m => {
+      const r = resumenPorMes[m];
+      tot.cantPedidos += r.cantPedidos;
+      tot.facturado += r.facturado;
+      tot.cobrado += r.cobrado;
+      tot.pendiente += r.pendiente;
+      tot.transferencia += r.transferencia;
+      tot.efectivo += r.efectivo;
+      tot.mercadopago += r.mercadopago;
+      tot.otro += r.otro;
+    });
+    filasResumen.push([
+      'TOTAL', tot.cantPedidos, tot.facturado, tot.cobrado, tot.pendiente,
+      tot.transferencia, tot.efectivo, tot.mercadopago, tot.otro
+    ]);
+  }
+  const wsResumen = XLSX.utils.aoa_to_sheet(filasResumen);
+  XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen Mensual');
+  
+  /* HOJA 4: CLIENTES */
   const filasClientes = [
-    ['ID', 'Nombre', 'Teléfono', 'Dirección', 'Fecha Alta', 'Último Pedido', 'Cant. Pedidos', 'Total Gastado', 'Notas']
+    ['ID', 'Nombre', 'Telefono', 'Direccion', 'Fecha Alta', 'Ultimo Pedido', 'Cant. Pedidos', 'Total Gastado', 'Notas']
   ];
   clientes.forEach(c => {
     filasClientes.push([
-      c.id, c.nombre, c.telefono, c.direccion,
+      c.id || c._id, c.nombre, c.telefono, c.direccion,
       c.fechaAlta, c.ultimoPedido, c.cantPedidos, c.totalGastado, c.notas || ''
     ]);
   });
   const wsClientes = XLSX.utils.aoa_to_sheet(filasClientes);
   XLSX.utils.book_append_sheet(wb, wsClientes, 'Clientes');
   
-  XLSX.writeFile(wb, 'Butcher_Pedidos_' + new Date().toISOString().slice(0,10) + '.xlsx');
-  showToast('✓ Excel descargado', false, 'success');
+  /* HOJA 5: PENDIENTES DE COBRO */
+  const pendientes = pedidos.filter(p => (p.estado || 'pendiente') !== 'pagado');
+  const filasPendientes = [
+    ['Fecha', 'Cliente', 'Telefono', 'Total', 'Cobrado', 'Saldo Pendiente', 'Estado', 'Dias de atraso']
+  ];
+  const hoy = new Date();
+  pendientes.forEach(p => {
+    const fecha = new Date(p.fecha);
+    const dias = Math.floor((hoy - fecha) / (1000 * 60 * 60 * 24));
+    const cobrado = p.estado === 'parcial' ? (p.montoParcial || 0) : 0;
+    const saldo = p.totalFinal - cobrado;
+    filasPendientes.push([
+      p.fecha, p.cliente, p.telefono || '',
+      p.totalFinal, cobrado, saldo,
+      p.estado || 'pendiente', dias
+    ]);
+  });
+  // Ordenar por dias de atraso descendente
+  const header = filasPendientes[0];
+  const data = filasPendientes.slice(1).sort((a, b) => b[7] - a[7]);
+  const filasPendientesOrdenadas = [header, ...data];
+  const wsPendientes = XLSX.utils.aoa_to_sheet(filasPendientesOrdenadas);
+  XLSX.utils.book_append_sheet(wb, wsPendientes, 'Pendientes de Cobro');
+  
+  XLSX.writeFile(wb, 'Butcher_Reporte_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  showToast('Reporte descargado con 5 hojas', false, 'success');
 }
 
 /* ============ HISTORIAL ============ */
@@ -1759,26 +1945,89 @@ function cambiarFiltroCliente(valor) {
   window._filtroTimeout = setTimeout(() => renderPedidos(), 300);
 }
 
-async function marcarPagado(pedidoId) {
+let pedidoIdCobro = null;
+
+function marcarPagado(pedidoId) {
   const pedido = pedidos.find(p => p._id === pedidoId);
   if (!pedido) return;
+  pedidoIdCobro = pedidoId;
   
-  const metodo = prompt('Método de pago:\n\n1 = Transferencia\n2 = Efectivo\n3 = Mercado Pago\n4 = Otro\n\nIngresá el número o escribilo:', '1');
-  if (!metodo) return;
+  // Resetear form
+  document.getElementById('cobroFecha').valueAsDate = new Date();
+  document.getElementById('cobroNotas').value = '';
+  document.getElementById('cobroMontoParcial').value = '';
+  document.getElementById('cobroPedidoInfo').innerHTML = `
+    <div style="font-weight:600; color:var(--navy);">${escapeHtml(pedido.cliente)}</div>
+    <div style="font-size:13px; color:#666;">${formatFecha(pedido.fecha)} · Total: $${formatNum(pedido.totalFinal)}</div>
+  `;
   
-  let metodoFinal = metodo.trim();
-  const mapa = { '1': 'Transferencia', '2': 'Efectivo', '3': 'Mercado Pago', '4': 'Otro' };
-  if (mapa[metodoFinal]) metodoFinal = mapa[metodoFinal];
+  // Deseleccionar métodos
+  document.querySelectorAll('.metodo-pago-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('cobroSeccionParcial').style.display = 'none';
+  document.getElementById('cobroTipo').value = 'completo';
+  
+  document.getElementById('modalCobro').classList.add('active');
+}
+
+function cerrarModalCobro() {
+  document.getElementById('modalCobro').classList.remove('active');
+  pedidoIdCobro = null;
+}
+
+function seleccionarMetodo(btn, metodo) {
+  document.querySelectorAll('.metodo-pago-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  document.getElementById('cobroMetodo').value = metodo;
+}
+
+function toggleTipoPago(tipo) {
+  document.getElementById('cobroTipo').value = tipo;
+  document.getElementById('cobroSeccionParcial').style.display = tipo === 'parcial' ? 'block' : 'none';
+  document.querySelectorAll('.tipo-pago-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector('.tipo-pago-btn[data-tipo="' + tipo + '"]').classList.add('selected');
+}
+
+async function confirmarCobro() {
+  if (!pedidoIdCobro) return;
+  
+  const metodo = document.getElementById('cobroMetodo').value;
+  const fecha = document.getElementById('cobroFecha').value;
+  const notas = document.getElementById('cobroNotas').value.trim();
+  const tipo = document.getElementById('cobroTipo').value;
+  
+  if (!metodo) {
+    showToast('Elegí un método de pago', true);
+    return;
+  }
+  
+  const pedido = pedidos.find(p => p._id === pedidoIdCobro);
+  if (!pedido) return;
+  
+  const updates = {
+    metodoPago: metodo,
+    fechaPago: fecha,
+    notasCobro: notas
+  };
+  
+  if (tipo === 'parcial') {
+    const monto = parseFloat(document.getElementById('cobroMontoParcial').value);
+    if (!monto || monto <= 0 || monto >= pedido.totalFinal) {
+      showToast('Ingresá un monto parcial válido (menor al total)', true);
+      return;
+    }
+    updates.estado = 'parcial';
+    updates.montoParcial = monto;
+  } else {
+    updates.estado = 'pagado';
+    updates.montoParcial = pedido.totalFinal;
+  }
   
   try {
     const { updateDoc, doc } = window.firebaseFns;
     const db = window.firebaseDB;
-    await updateDoc(doc(db, 'pedidos', pedidoId), {
-      estado: 'pagado',
-      metodoPago: metodoFinal,
-      fechaPago: new Date().toISOString().slice(0, 10)
-    });
-    showToast('✅ Pedido marcado como pagado', false, 'success');
+    await updateDoc(doc(db, 'pedidos', pedidoIdCobro), updates);
+    cerrarModalCobro();
+    showToast(tipo === 'parcial' ? '💵 Pago parcial registrado' : '✅ Pedido marcado como pagado', false, 'success');
   } catch(err) {
     showToast('Error: ' + err.message, true);
   }
