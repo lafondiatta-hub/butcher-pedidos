@@ -378,6 +378,33 @@ input[readonly] { background: #f5f5f5; }
   border-color: var(--navy);
   background: var(--cream);
 }
+.estado-btn {
+  padding: 16px 10px;
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--navy);
+  transition: all 0.15s;
+  text-align: center;
+}
+.estado-btn:hover {
+  border-color: var(--navy);
+  background: var(--cream);
+}
+.estado-btn.selected[data-estado="pendiente"] {
+  border-color: #f57c00;
+  background: #fff3e0;
+  color: #e65100;
+}
+.estado-btn.selected[data-estado="pagado"] {
+  border-color: #2e7d32;
+  background: #e8f5e9;
+  color: #1b5e20;
+}
 .metodo-pago-btn.selected, .tipo-pago-btn.selected {
   border-color: var(--navy);
   background: var(--navy);
@@ -959,6 +986,22 @@ function renderApp() {
       </div>
     </div>
     
+    <div class="card">
+      <h2>💰 Estado del Pago</h2>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <button class="estado-btn selected" data-estado="pendiente" onclick="cambiarEstadoPedido('pendiente')">
+          ⏳ Pendiente de cobro
+        </button>
+        <button class="estado-btn" data-estado="pagado" onclick="cambiarEstadoPedido('pagado')">
+          ✅ Pagado ahora
+        </button>
+      </div>
+      <input type="hidden" id="estadoPedido" value="pendiente">
+      <div id="infoEstadoPago" style="margin-top:10px; padding:10px; background:var(--cream); border-radius:6px; font-size:12px; color:#666; text-align:center;">
+        💡 Cuando cobres, lo marcás desde "Ver todos los pedidos"
+      </div>
+    </div>
+    
     <div id="totalesBox" class="totales" style="display:none;">
       <div class="totales-row">
         <span>Subtotal</span>
@@ -1249,6 +1292,7 @@ function generarResumen() {
   const telefono = document.getElementById('telefono').value.trim();
   const direccion = document.getElementById('direccion').value.trim();
   const fecha = document.getElementById('fecha').value;
+  const estadoPedido = document.getElementById('estadoPedido').value;
   
   if (!cliente) {
     showToast('Ingresá el nombre del cliente', true);
@@ -1281,55 +1325,20 @@ function generarResumen() {
     timestamp: new Date().toISOString()
   };
   
-  // Guardar en Firebase de forma async
-  (async () => {
-    try {
-      const { collection, addDoc, updateDoc, doc } = window.firebaseFns;
-      const db = window.firebaseDB;
-      
-      // Upsert cliente en Firebase
-      const clienteNorm = normalizar(cliente);
-      let clienteExistente = clientes.find(c => normalizar(c.nombre) === clienteNorm);
-      
-      if (clienteExistente) {
-        const updates = {
-          ultimoPedido: fecha,
-          cantPedidos: (clienteExistente.cantPedidos || 0) + 1,
-          totalGastado: (clienteExistente.totalGastado || 0) + total
-        };
-        if (telefono && !clienteExistente.telefono) updates.telefono = telefono;
-        if (direccion && !clienteExistente.direccion) updates.direccion = direccion;
-        await updateDoc(doc(db, 'clientes', clienteExistente._id), updates);
-      } else {
-        const nuevoCliente = {
-          nombre: cliente,
-          telefono: telefono,
-          direccion: direccion,
-          fechaAlta: fecha,
-          ultimoPedido: fecha,
-          cantPedidos: 1,
-          totalGastado: total,
-          notas: ''
-        };
-        await addDoc(collection(db, 'clientes'), nuevoCliente);
-        showToast('✓ Cliente nuevo agregado a tu base', false, 'success');
-      }
-      
-      // Agregar estado de pago inicial al pedido
-      pedido.estado = 'pendiente';
-      pedido.metodoPago = '';
-      pedido.fechaPago = '';
-      
-      // Guardar pedido en Firebase
-      await addDoc(collection(db, 'pedidos'), pedido);
-      
-    } catch(err) {
-      console.error('Error guardando en Firebase:', err);
-      showToast('⚠️ Error guardando en la nube, pero el resumen se generó', true);
-    }
-  })();
+  // Si el pedido se marca como pagado ahora, abrir modal de cobro primero
+  if (estadoPedido === 'pagado') {
+    abrirModalCobroNuevoPedido(pedido);
+    return;
+  }
   
-  // Mostrar resumen inmediatamente (sin esperar a Firebase)
+  // Estado inicial: pendiente (si no viene de modal de cobro, que ya lo seteo)
+  pedido.estado = 'pendiente';
+  pedido.metodoPago = '';
+  pedido.fechaPago = '';
+  pedido.notasCobro = '';
+  
+  // Guardar en Firebase y mostrar resumen
+  guardarPedidoEnFirebase(pedido);
   sessionStorage.setItem('pedidoActual', JSON.stringify(pedido));
   renderResumen(pedido);
 }
@@ -1945,6 +1954,51 @@ function cambiarFiltroCliente(valor) {
   window._filtroTimeout = setTimeout(() => renderPedidos(), 300);
 }
 
+function cambiarEstadoPedido(estado) {
+  document.getElementById('estadoPedido').value = estado;
+  document.querySelectorAll('.estado-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector('.estado-btn[data-estado="' + estado + '"]').classList.add('selected');
+  
+  const info = document.getElementById('infoEstadoPago');
+  if (estado === 'pagado') {
+    info.innerHTML = '✅ Al generar el resumen vas a elegir método de pago y fecha';
+    info.style.background = '#e8f5e9';
+    info.style.color = '#1b5e20';
+  } else {
+    info.innerHTML = '💡 Cuando cobres, lo marcás desde "Ver todos los pedidos"';
+    info.style.background = 'var(--cream)';
+    info.style.color = '#666';
+  }
+}
+
+// Estado: pedido nuevo pendiente de cobro (antes de guardar)
+let pedidoNuevoPendiente = null;
+
+function abrirModalCobroNuevoPedido(pedido) {
+  pedidoNuevoPendiente = pedido;
+  pedidoIdCobro = null;
+  
+  // Setear fecha de cobro por default hoy
+  document.getElementById('cobroFecha').valueAsDate = new Date();
+  document.getElementById('cobroNotas').value = '';
+  document.getElementById('cobroMontoParcial').value = '';
+  document.getElementById('cobroPedidoInfo').innerHTML = `
+    <div style="font-weight:600; color:var(--navy);">${escapeHtml(pedido.cliente)}</div>
+    <div style="font-size:13px; color:#666;">${formatFecha(pedido.fecha)} · Total: $${formatNum(pedido.totalFinal)}</div>
+    <div style="font-size:11px; color:#1b5e20; margin-top:4px;">🆕 Pedido nuevo - registrá el cobro</div>
+  `;
+  
+  // Deseleccionar metodos
+  document.querySelectorAll('.metodo-pago-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('cobroSeccionParcial').style.display = 'none';
+  document.getElementById('cobroTipo').value = 'completo';
+  document.querySelectorAll('.tipo-pago-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector('.tipo-pago-btn[data-tipo="completo"]').classList.add('selected');
+  document.getElementById('cobroMetodo').value = '';
+  
+  document.getElementById('modalCobro').classList.add('active');
+}
+
 let pedidoIdCobro = null;
 
 function marcarPagado(pedidoId) {
@@ -1972,6 +2026,11 @@ function marcarPagado(pedidoId) {
 function cerrarModalCobro() {
   document.getElementById('modalCobro').classList.remove('active');
   pedidoIdCobro = null;
+  // Si era un pedido nuevo y se cancela, NO se guarda - se mantiene el estado del form
+  if (pedidoNuevoPendiente) {
+    pedidoNuevoPendiente = null;
+    showToast('Pedido no guardado. Podés cambiar el estado y generar de nuevo.', false);
+  }
 }
 
 function seleccionarMetodo(btn, metodo) {
@@ -1988,8 +2047,6 @@ function toggleTipoPago(tipo) {
 }
 
 async function confirmarCobro() {
-  if (!pedidoIdCobro) return;
-  
   const metodo = document.getElementById('cobroMetodo').value;
   const fecha = document.getElementById('cobroFecha').value;
   const notas = document.getElementById('cobroNotas').value.trim();
@@ -1999,6 +2056,40 @@ async function confirmarCobro() {
     showToast('Elegí un método de pago', true);
     return;
   }
+  
+  // CASO 1: Es un pedido nuevo (desde el form de carga)
+  if (pedidoNuevoPendiente) {
+    const pedido = pedidoNuevoPendiente;
+    
+    if (tipo === 'parcial') {
+      const monto = parseFloat(document.getElementById('cobroMontoParcial').value);
+      if (!monto || monto <= 0 || monto >= pedido.totalFinal) {
+        showToast('Ingresá un monto parcial válido (menor al total)', true);
+        return;
+      }
+      pedido.estado = 'parcial';
+      pedido.montoParcial = monto;
+    } else {
+      pedido.estado = 'pagado';
+      pedido.montoParcial = pedido.totalFinal;
+    }
+    
+    pedido.metodoPago = metodo;
+    pedido.fechaPago = fecha;
+    pedido.notasCobro = notas;
+    
+    // Guardar en Firebase y mostrar resumen
+    cerrarModalCobro();
+    pedidoNuevoPendiente = null;
+    await guardarPedidoEnFirebase(pedido);
+    sessionStorage.setItem('pedidoActual', JSON.stringify(pedido));
+    renderResumen(pedido);
+    showToast(tipo === 'parcial' ? '💵 Pedido guardado con pago parcial' : '✅ Pedido guardado como pagado', false, 'success');
+    return;
+  }
+  
+  // CASO 2: Es un pedido existente (desde Seguimiento)
+  if (!pedidoIdCobro) return;
   
   const pedido = pedidos.find(p => p._id === pedidoIdCobro);
   if (!pedido) return;
@@ -2030,6 +2121,47 @@ async function confirmarCobro() {
     showToast(tipo === 'parcial' ? '💵 Pago parcial registrado' : '✅ Pedido marcado como pagado', false, 'success');
   } catch(err) {
     showToast('Error: ' + err.message, true);
+  }
+}
+
+// Funcion helper para guardar pedido en Firebase (extraida para reusar)
+async function guardarPedidoEnFirebase(pedido) {
+  try {
+    const { collection, addDoc, updateDoc, doc } = window.firebaseFns;
+    const db = window.firebaseDB;
+    
+    // Upsert cliente
+    const clienteNorm = normalizar(pedido.cliente);
+    let clienteExistente = clientes.find(c => normalizar(c.nombre) === clienteNorm);
+    
+    if (clienteExistente) {
+      const updatesC = {
+        ultimoPedido: pedido.fecha,
+        cantPedidos: (clienteExistente.cantPedidos || 0) + 1,
+        totalGastado: (clienteExistente.totalGastado || 0) + pedido.totalFinal
+      };
+      if (pedido.telefono && !clienteExistente.telefono) updatesC.telefono = pedido.telefono;
+      if (pedido.direccion && !clienteExistente.direccion) updatesC.direccion = pedido.direccion;
+      await updateDoc(doc(db, 'clientes', clienteExistente._id), updatesC);
+    } else {
+      const nuevoCliente = {
+        nombre: pedido.cliente,
+        telefono: pedido.telefono,
+        direccion: pedido.direccion,
+        fechaAlta: pedido.fecha,
+        ultimoPedido: pedido.fecha,
+        cantPedidos: 1,
+        totalGastado: pedido.totalFinal,
+        notas: ''
+      };
+      await addDoc(collection(db, 'clientes'), nuevoCliente);
+      showToast('✓ Cliente nuevo agregado a tu base', false, 'success');
+    }
+    
+    await addDoc(collection(db, 'pedidos'), pedido);
+  } catch(err) {
+    console.error('Error guardando en Firebase:', err);
+    showToast('⚠️ Error guardando en la nube', true);
   }
 }
 
