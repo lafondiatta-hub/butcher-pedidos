@@ -782,7 +782,7 @@ function onProductoSearchInput() {
     .filter(p => normalizar(p.nombre).includes(valor) || normalizar(p.categoria || '').includes(valor));
 
   if (disp.length > 0) {
-    sugg.innerHTML = disp.slice(0, 12).map(p => {
+    sugg.innerHTML = disp.map(p => {
       const precio = p.precios[config.listaActiva];
       return `<div class="producto-item" onmousedown="seleccionarProducto(${p.idx})">
         <div class="prod-name">${escapeHtml(p.nombre)}</div>
