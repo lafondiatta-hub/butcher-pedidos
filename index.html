@@ -130,6 +130,19 @@ input[readonly] { background: #f5f5f5; }
 .cart-item-name { font-weight: 600; font-size: 14px; color: var(--navy); }
 .cart-item-detail { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .cart-item-price { font-weight: 700; color: var(--navy); font-size: 15px; white-space: nowrap; }
+
+/* === LOGÍSTICA CART ITEM === */
+.cart-item-logistica {
+  background: #f0f4ff; border: 2px dashed #7986cb; border-radius: 8px; padding: 12px;
+  margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+}
+.cart-item-logistica .cart-item-name { color: #3949ab; }
+.logistica-input {
+  width: 130px; padding: 8px 10px; border: 1px solid #9fa8da; border-radius: 6px;
+  font-size: 15px; font-weight: 700; color: #1a237e; background: white; text-align: right;
+}
+.logistica-input:focus { outline: none; border-color: #3949ab; box-shadow: 0 0 0 3px rgba(57,73,171,0.15); }
+
 .cart-empty { text-align: center; color: var(--text-muted); padding: 20px; font-size: 14px; font-style: italic; }
 .totales { background: var(--navy); color: white; padding: 16px; border-radius: var(--radius); margin-top: 12px; }
 .totales-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
@@ -177,7 +190,7 @@ input[readonly] { background: #f5f5f5; }
 .sync-off { background: #fff3e0; color: #e65100; }
 .sync-error { background: #ffebee; color: #c62828; }
 
-/* === PRODUCTO SEARCH (nuevo) === */
+/* === PRODUCTO SEARCH === */
 .producto-search-container { position: relative; }
 .producto-search-input { padding-left: 36px !important; }
 .producto-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #999; pointer-events: none; }
@@ -276,7 +289,7 @@ input[readonly] { background: #f5f5f5; }
 
 <div class="toast" id="toast"></div>
 
-<!-- MODAL AGREGAR PRODUCTO (v3: con buscador) -->
+<!-- MODAL AGREGAR PRODUCTO -->
 <div class="modal-overlay" id="modalAgregar">
   <div class="modal">
     <h3>Agregar Producto</h3>
@@ -353,10 +366,10 @@ input[readonly] { background: #f5f5f5; }
 
 <script>
 /* ============================================================
- * THE BUTCHER — App v3.1
- * Cambios v3.1:
- *   - Buscador de producto con autocomplete (reemplaza <select>)
- *   - Compatible con GAS v3 (reporte lee Comentarios + Detalle pedido)
+ * THE BUTCHER — App v3.2
+ * Cambios v3.2:
+ *   - Lista de precios actualizada a may.26
+ *   - Nuevo ítem "Logística" con importe manual en carrito y resumen
  * ============================================================ */
 
 const CLIENTES_HISTORICOS = [];
@@ -375,12 +388,11 @@ let pedidos = [];
 let clientes = [];
 let listasDisponibles = [];
 let carrito = [];
+let logisticaMonto = 0; // monto de logística (0 = sin logística)
 let clienteSeleccionado = null;
 let firebaseListo = false;
 let unsubscribers = [];
-
-/* === NUEVO: Estado del buscador de productos === */
-let productoSeleccionadoIdx = null; // índice en array productos
+let productoSeleccionadoIdx = null;
 
 if (window.firebaseReady) { firebaseListo = true; iniciarApp(); }
 else { window.addEventListener('firebase-ready', () => { firebaseListo = true; iniciarApp(); }); }
@@ -554,10 +566,12 @@ function onExcelUpload(event) {
       for (const p of prodNuevos) { const r = await addDoc(collection(db, 'productos'), p); guardados.push({ _id: r.id, ...p }); }
       productos = guardados;
       listasDisponibles = colsPrecios.map(c => c.nombre);
-      if (!config) config = { alias: 'thebutcher.lemon', titular: 'Juan Pablo Aduna', listaActiva: listasDisponibles[listasDisponibles.length-1], listasDisponibles, sheetsUrl: '', vendedor: 'JP' };
-      else { if (!listasDisponibles.includes(config.listaActiva)) config.listaActiva = listasDisponibles[listasDisponibles.length-1]; config.listasDisponibles = listasDisponibles; }
+      // v3.2: al subir Excel nuevo, activar automáticamente la última lista (may.26)
+      const listaDefault = listasDisponibles[listasDisponibles.length - 1];
+      if (!config) config = { alias: 'thebutcher.lemon', titular: 'Juan Pablo Aduna', listaActiva: listaDefault, listasDisponibles, sheetsUrl: '', vendedor: 'JP' };
+      else { config.listaActiva = listaDefault; config.listasDisponibles = listasDisponibles; }
       await setDoc(doc(db, 'config', 'main'), config);
-      showToast(`✓ ${prodNuevos.length} productos · ${listasDisponibles.length} listas`, false, 'success');
+      showToast(`✓ ${prodNuevos.length} productos · Lista activa: ${listaDefault}`, false, 'success');
       setTimeout(() => renderApp(), 800);
     } catch (err) { console.error(err); showToast('Error: ' + err.message, true); }
   };
@@ -609,6 +623,7 @@ function renderApp() {
       <h2>🛒 Productos del Pedido</h2>
       <div id="cartList"><div class="cart-empty">Todavía no agregaste productos</div></div>
       <button class="btn btn-add" onclick="abrirModalAgregar()">+ Agregar Producto</button>
+      <button class="btn btn-add" id="btnAgregarLogistica" onclick="agregarLogistica()" style="margin-top:6px; border-color:#7986cb; color:#3949ab; background:#f0f4ff;">🚚 Agregar Logística</button>
     </div>
     <div class="card">
       <h2>💸 Descuento (Opcional)</h2>
@@ -624,7 +639,8 @@ function renderApp() {
       <div id="infoEstadoPago" style="margin-top:10px; padding:10px; background:var(--cream); border-radius:6px; font-size:12px; color:#666; text-align:center;">💡 Cuando cobres, lo marcás desde "Ver todos los pedidos"</div>
     </div>
     <div id="totalesBox" class="totales" style="display:none;">
-      <div class="totales-row"><span>Subtotal</span><span id="subtotalDisplay">$0</span></div>
+      <div class="totales-row"><span>Subtotal productos</span><span id="subtotalDisplay">$0</span></div>
+      <div class="totales-row" id="logisticaRow" style="display:none;"><span>🚚 Logística</span><span id="logisticaDisplay">$0</span></div>
       <div class="totales-row" id="descuentoRow" style="display:none;"><span>Descuento <span id="descuentoPct"></span></span><span id="descuentoMontoDisplay">-$0</span></div>
       <div class="totales-row total-final"><span>TOTAL</span><span id="totalDisplay">$0</span></div>
     </div>
@@ -647,6 +663,42 @@ function renderApp() {
   document.getElementById('fecha').valueAsDate = new Date();
   document.getElementById('listaPrecios').value = config.listaActiva;
   if (config.vendedor) document.getElementById('vendedor').value = config.vendedor;
+  actualizarBtnLogistica();
+}
+
+/* ============ LOGÍSTICA ============ */
+function actualizarBtnLogistica() {
+  const btn = document.getElementById('btnAgregarLogistica');
+  if (!btn) return;
+  if (logisticaMonto > 0) {
+    btn.style.display = 'none'; // hide add button when logistica is in cart
+  } else {
+    btn.style.display = '';
+  }
+}
+
+function agregarLogistica() {
+  logisticaMonto = 0;
+  renderCarrito();
+  actualizarTotales();
+  actualizarBtnLogistica();
+  // Focus the logistica input
+  setTimeout(() => {
+    const inp = document.getElementById('inputLogistica');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+function onLogisticaInput(val) {
+  logisticaMonto = parseFloat(val) || 0;
+  actualizarTotales();
+}
+
+function quitarLogistica() {
+  logisticaMonto = 0;
+  renderCarrito();
+  actualizarTotales();
+  actualizarBtnLogistica();
 }
 
 /* ============ AUTOCOMPLETE CLIENTE ============ */
@@ -674,7 +726,7 @@ function onClienteInput() {
         const idx = clientes.indexOf(c);
         return `<div class="autocomplete-item" onmousedown="seleccionarCliente(${idx})">
           <div class="name">${escapeHtml(c.nombre)}</div>
-          <div class="meta">${c.cantPedidos} pedido${c.cantPedidos!==1?'s':''} ${c.telefono?' · '+escapeHtml(c.telefono):''} ${c.direccion?' · 📍':''}</div>
+          <div class="meta">${c.cantPedidos} pedido${c.cantPedidos!==1?'s':''} ${c.telefono?' · '+escapeHtml(c.telefono):''}${c.direccion?' · 📍':''}</div>
         </div>`;
       }).join('');
       sugg.classList.add('active');
@@ -699,7 +751,7 @@ function mostrarInfoCliente(c) {
 }
 function ocultarInfoCliente() { const b = document.getElementById('clienteInfoBox'); if(b) b.classList.remove('active'); }
 
-/* ============ MODAL AGREGAR PRODUCTO (v3.1: con buscador) ============ */
+/* ============ MODAL AGREGAR PRODUCTO ============ */
 function abrirModalAgregar() {
   productoSeleccionadoIdx = null;
   document.getElementById('inputBuscarProducto').value = '';
@@ -714,21 +766,19 @@ function abrirModalAgregar() {
 }
 function cerrarModal() { document.getElementById('modalAgregar').classList.remove('active'); }
 
-/* Buscador de producto: filtra por nombre */
 function onProductoSearchInput() {
   const input = document.getElementById('inputBuscarProducto');
   const valor = normalizar(input.value);
   const sugg = document.getElementById('productoSuggestions');
 
   if (valor.length < 1) {
-    // Mostrar todos los productos disponibles (agrupados)
     mostrarTodosProductos(sugg);
     return;
   }
 
   const disp = productos
     .map((p, i) => ({ ...p, idx: i }))
-    .filter(p => p.precios[config.listaActiva] > 0)
+    .filter(p => p.precios && p.precios[config.listaActiva] > 0)
     .filter(p => normalizar(p.nombre).includes(valor) || normalizar(p.categoria || '').includes(valor));
 
   if (disp.length > 0) {
@@ -749,9 +799,8 @@ function onProductoSearchInput() {
 function mostrarTodosProductos(sugg) {
   const disp = productos
     .map((p, i) => ({ ...p, idx: i }))
-    .filter(p => p.precios[config.listaActiva] > 0);
+    .filter(p => p.precios && p.precios[config.listaActiva] > 0);
   
-  // Agrupar por categoría
   const cats = {};
   disp.forEach(p => { const c = p.categoria || 'Otros'; if (!cats[c]) cats[c] = []; cats[c].push(p); });
   
@@ -775,7 +824,6 @@ function seleccionarProducto(idx) {
   const precio = p.precios[config.listaActiva];
   productoSeleccionadoIdx = idx;
 
-  // Ocultar input de búsqueda, mostrar selección
   document.getElementById('inputBuscarProducto').style.display = 'none';
   document.querySelector('.producto-search-icon').style.display = 'none';
   document.getElementById('productoSuggestions').classList.remove('active');
@@ -785,7 +833,6 @@ function seleccionarProducto(idx) {
   document.getElementById('selProdPrice').textContent = '$' + formatNum(precio) + '/' + p.tipo;
   box.classList.add('active');
 
-  // Mostrar campo de cantidad
   document.getElementById('labelCantidadBox').style.display = 'block';
   if (p.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
@@ -822,26 +869,110 @@ function confirmarAgregar() {
 }
 
 function eliminarItem(idx) { carrito.splice(idx, 1); renderCarrito(); actualizarTotales(); }
+
 function renderCarrito() {
   const c = document.getElementById('cartList');
-  if (carrito.length === 0) { c.innerHTML = '<div class="cart-empty">Todavía no agregaste productos</div>'; return; }
-  c.innerHTML = carrito.map((item, idx) => `
-    <div class="cart-item"><div class="cart-item-info"><div class="cart-item-name">${escapeHtml(item.producto)}</div>
-    <div class="cart-item-detail">${item.pesoOCantidad} ${item.tipo==='kg'?'kg':'u'} × $${formatNum(item.precio)}</div></div>
-    <div class="cart-item-price">$${formatNum(item.subtotal)}</div>
-    <button class="btn-danger-small" onclick="eliminarItem(${idx})">✕</button></div>
+  // Determinar si mostrar logistica row
+  const tieneLogistica = logisticaMonto > 0 || document.getElementById('inputLogistica') !== null;
+  // logística se considera "en el carrito" si fue agregada (incluso con monto 0 temporal)
+  const logisticaAgregada = window._logisticaAgregada || false;
+
+  if (carrito.length === 0 && !logisticaAgregada) {
+    c.innerHTML = '<div class="cart-empty">Todavía no agregaste productos</div>';
+    return;
+  }
+
+  let html = carrito.map((item, idx) => `
+    <div class="cart-item">
+      <div class="cart-item-info">
+        <div class="cart-item-name">${escapeHtml(item.producto)}</div>
+        <div class="cart-item-detail">${item.pesoOCantidad} ${item.tipo==='kg'?'kg':'u'} × $${formatNum(item.precio)}</div>
+      </div>
+      <div class="cart-item-price">$${formatNum(item.subtotal)}</div>
+      <button class="btn-danger-small" onclick="eliminarItem(${idx})">✕</button>
+    </div>
   `).join('');
+
+  // Row de logística si fue agregada
+  if (logisticaAgregada) {
+    html += `
+      <div class="cart-item-logistica">
+        <div class="cart-item-info">
+          <div class="cart-item-name">🚚 Logística</div>
+          <div class="cart-item-detail" style="color:#5c6bc0;">Ingresá el importe</div>
+        </div>
+        <input type="number" id="inputLogistica" class="logistica-input" 
+          placeholder="$0" min="0" step="100"
+          value="${logisticaMonto > 0 ? logisticaMonto : ''}"
+          oninput="onLogisticaInput(this.value)"
+          placeholder="Importe">
+        <button class="btn-danger-small" onclick="quitarLogistica()" style="color:#5c6bc0;">✕</button>
+      </div>
+    `;
+  }
+
+  c.innerHTML = html;
 }
+
+/* Override agregarLogistica to track state */
+const _agregarLogisticaOrig = agregarLogistica;
+function agregarLogistica() {
+  window._logisticaAgregada = true;
+  logisticaMonto = 0;
+  renderCarrito();
+  actualizarTotales();
+  actualizarBtnLogistica();
+  setTimeout(() => {
+    const inp = document.getElementById('inputLogistica');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+const _quitarLogisticaOrig = quitarLogistica;
+function quitarLogistica() {
+  window._logisticaAgregada = false;
+  logisticaMonto = 0;
+  renderCarrito();
+  actualizarTotales();
+  actualizarBtnLogistica();
+}
+
 function actualizarTotales() {
   const sub = carrito.reduce((s, i) => s + i.subtotal, 0);
-  const dp = parseFloat(document.getElementById('descuento').value) || 0;
-  const dm = sub * (dp / 100), tot = sub - dm;
-  document.getElementById('subtotalDisplay').textContent = '$' + formatNum(sub);
-  document.getElementById('totalDisplay').textContent = '$' + formatNum(tot);
-  if (dp > 0) { document.getElementById('descuentoRow').style.display = 'flex'; document.getElementById('descuentoPct').textContent = '(' + dp + '%)'; document.getElementById('descuentoMontoDisplay').textContent = '-$' + formatNum(dm); }
-  else document.getElementById('descuentoRow').style.display = 'none';
-  document.getElementById('totalesBox').style.display = carrito.length > 0 ? 'block' : 'none';
-  document.getElementById('btnGenerar').disabled = carrito.length === 0;
+  const dp = parseFloat(document.getElementById('descuento') ? document.getElementById('descuento').value : '0') || 0;
+  const dm = sub * (dp / 100);
+  const tot = sub - dm + logisticaMonto;
+
+  const subtotalEl = document.getElementById('subtotalDisplay');
+  const totalEl = document.getElementById('totalDisplay');
+  const totalesBox = document.getElementById('totalesBox');
+  const logisticaRow = document.getElementById('logisticaRow');
+  const logisticaDisplay = document.getElementById('logisticaDisplay');
+
+  if (!subtotalEl) return;
+
+  subtotalEl.textContent = '$' + formatNum(sub);
+  totalEl.textContent = '$' + formatNum(tot);
+
+  if (logisticaMonto > 0 && logisticaRow) {
+    logisticaRow.style.display = 'flex';
+    logisticaDisplay.textContent = '$' + formatNum(logisticaMonto);
+  } else if (logisticaRow) {
+    logisticaRow.style.display = 'none';
+  }
+
+  if (dp > 0) {
+    document.getElementById('descuentoRow').style.display = 'flex';
+    document.getElementById('descuentoPct').textContent = '(' + dp + '%)';
+    document.getElementById('descuentoMontoDisplay').textContent = '-$' + formatNum(dm);
+  } else {
+    document.getElementById('descuentoRow').style.display = 'none';
+  }
+
+  const mostrar = carrito.length > 0 || window._logisticaAgregada;
+  if (totalesBox) totalesBox.style.display = mostrar ? 'block' : 'none';
+  const btnGenerar = document.getElementById('btnGenerar');
+  if (btnGenerar) btnGenerar.disabled = carrito.length === 0;
 }
 
 /* ============ GENERAR RESUMEN ============ */
@@ -856,10 +987,12 @@ async function generarResumen() {
   if (carrito.length === 0) { showToast('Agregá al menos un producto', true); return; }
   const sub = carrito.reduce((s, i) => s + i.subtotal, 0);
   const dp = parseFloat(document.getElementById('descuento').value) || 0;
-  const dm = sub * (dp / 100), tot = sub - dm;
+  const dm = sub * (dp / 100);
+  const tot = sub - dm + logisticaMonto;
   const pedido = {
     id: 'PED-' + Date.now(), cliente, telefono, direccion, fecha, vendedor,
     listaPrecios: config.listaActiva, items: [...carrito],
+    logistica: logisticaMonto,
     subtotalPedido: sub, descuentoPct: dp, descuentoMonto: dm, totalFinal: tot,
     alias: config.alias, titular: config.titular, timestamp: new Date().toISOString()
   };
@@ -902,7 +1035,12 @@ async function guardarPedidoEnFirebase(pedido) {
 function renderResumen(p) {
   const fechaFmt = formatFecha(p.fecha);
   const itemsRows = p.items.map(i => `<tr><td>${escapeHtml(i.producto)}</td><td class="num">${i.tipo==='kg'?i.pesoOCantidad.toFixed(3):'-'}</td><td class="num">${i.tipo==='unidad'?i.pesoOCantidad:'-'}</td><td class="num">$${formatNum(i.precio)}</td><td class="num bold">$${formatNum(i.subtotal)}</td></tr>`).join('');
+  // Logística row en tabla si aplica
+  const logisticaRow = (p.logistica && p.logistica > 0)
+    ? `<tr style="background:#f0f4ff;"><td><b>🚚 Logística</b></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num bold" style="color:#3949ab;">$${formatNum(p.logistica)}</td></tr>`
+    : '';
   const descHTML = p.descuentoPct > 0 ? `<div class="resumen-row"><span>Descuento (${p.descuentoPct}%)</span><span class="num">-$${formatNum(p.descuentoMonto)}</span></div>` : '';
+  const logisticaResumenHTML = (p.logistica && p.logistica > 0) ? `<div class="resumen-row"><span>🚚 Logística</span><span class="num" style="color:#3949ab;">$${formatNum(p.logistica)}</span></div>` : '';
   const ciHTML = (p.telefono||p.direccion) ? `<div style="font-size:12px;color:#666;margin-top:4px;">${p.telefono?'📞 '+escapeHtml(p.telefono):''}${p.telefono&&p.direccion?' · ':''}${p.direccion?'📍 '+escapeHtml(p.direccion):''}</div>` : '';
   document.getElementById('app').innerHTML = `
     <div class="header"><h1>🥩 THE BUTCHER</h1><p>Resumen del Pedido</p></div>
@@ -912,11 +1050,12 @@ function renderResumen(p) {
         <div class="cliente-box"><div class="datos"><div><b>Cliente:</b> ${escapeHtml(p.cliente)}</div><div><b>Fecha:</b> ${fechaFmt}</div><div><b>Vendedor:</b> ${escapeHtml(p.vendedor||'')}</div></div>${ciHTML}</div>
       </div>
       <div class="section-title">💬 Detalle del Pedido</div>
-      <table><thead><tr><th>Producto</th><th class="num">Kg</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>${itemsRows}</tbody></table>
+      <table><thead><tr><th>Producto</th><th class="num">Kg</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>${itemsRows}${logisticaRow}</tbody></table>
       <div class="bottom">
         <div class="pago-box"><div class="title">💳 Datos de Pago</div><div><b>Alias:</b> ${escapeHtml(p.alias)}</div><div><b>Titular:</b> ${escapeHtml(p.titular)}</div></div>
         <div class="total-box">
           <div class="resumen-row"><span>Subtotal</span><span class="num">$${formatNum(p.subtotalPedido)}</span></div>
+          ${logisticaResumenHTML}
           ${descHTML}
           <div class="resumen-row" style="border-top:2px solid #1a2542;margin-top:8px;padding-top:10px;"><span class="total-label">TOTAL</span><span class="total-value">$${formatNum(p.totalFinal)}</span></div>
         </div>
@@ -931,7 +1070,13 @@ function renderResumen(p) {
   window.scrollTo(0, 0);
 }
 
-function volverAPedidos() { carrito = []; clienteSeleccionado = null; renderApp(); }
+function volverAPedidos() {
+  carrito = [];
+  logisticaMonto = 0;
+  window._logisticaAgregada = false;
+  clienteSeleccionado = null;
+  renderApp();
+}
 
 function descargarImagen() {
   const el = document.getElementById('resumenCaptura');
@@ -948,7 +1093,9 @@ function compartirWhatsApp() {
   if (p.telefono) msg += `*Tel:* ${p.telefono}\n`; if (p.direccion) msg += `*Dir:* ${p.direccion}\n`;
   msg += `\n*Detalle:*\n`;
   p.items.forEach(i => { const qty = i.tipo==='kg'?i.pesoOCantidad.toFixed(3)+' kg':i.pesoOCantidad+' u'; msg += `• ${i.producto} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`; });
+  if (p.logistica && p.logistica > 0) msg += `• 🚚 Logística = *$${formatNum(p.logistica)}*\n`;
   msg += `\n*Subtotal:* $${formatNum(p.subtotalPedido)}\n`;
+  if (p.logistica && p.logistica > 0) msg += `*Logística:* $${formatNum(p.logistica)}\n`;
   if (p.descuentoPct > 0) msg += `*Desc (${p.descuentoPct}%):* -$${formatNum(p.descuentoMonto)}\n`;
   msg += `*TOTAL: $${formatNum(p.totalFinal)}*\n\n💳 *Pago*\nAlias: ${p.alias}\nTitular: ${p.titular}`;
   window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
@@ -1043,11 +1190,14 @@ function actualizarPrecios() {
 function exportarPedidosExcel() {
   if (pedidos.length === 0) { showToast('No hay pedidos', true); return; }
   const wb = XLSX.utils.book_new();
-  const fp = [['ID','Fecha','Vendedor','Cliente','Telefono','Direccion','Items','Subtotal','Desc%','Desc$','Total','Estado','Metodo','Fecha Cobro']];
-  pedidos.forEach(p => fp.push([p.id||p._id, p.fecha, p.vendedor||'', p.cliente, p.telefono||'', p.direccion||'', p.items.length, p.subtotalPedido, p.descuentoPct||0, p.descuentoMonto||0, p.totalFinal, p.estado||'pendiente', p.metodoPago||'', p.fechaPago||'']));
+  const fp = [['ID','Fecha','Vendedor','Cliente','Telefono','Direccion','Items','Subtotal','Logistica','Desc%','Desc$','Total','Estado','Metodo','Fecha Cobro']];
+  pedidos.forEach(p => fp.push([p.id||p._id, p.fecha, p.vendedor||'', p.cliente, p.telefono||'', p.direccion||'', p.items.length, p.subtotalPedido, p.logistica||0, p.descuentoPct||0, p.descuentoMonto||0, p.totalFinal, p.estado||'pendiente', p.metodoPago||'', p.fechaPago||'']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fp), 'Pedidos');
   const fd = [['ID Pedido','Fecha','Cliente','Producto','Tipo','Cantidad','Precio','Subtotal']];
-  pedidos.forEach(p => p.items.forEach(i => fd.push([p.id||p._id, p.fecha, p.cliente, i.producto, i.tipo, i.pesoOCantidad, i.precio, i.subtotal])));
+  pedidos.forEach(p => {
+    p.items.forEach(i => fd.push([p.id||p._id, p.fecha, p.cliente, i.producto, i.tipo, i.pesoOCantidad, i.precio, i.subtotal]));
+    if (p.logistica && p.logistica > 0) fd.push([p.id||p._id, p.fecha, p.cliente, 'Logística', '-', 1, p.logistica, p.logistica]);
+  });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fd), 'Detalle');
   const fc = [['Nombre','Telefono','Direccion','Pedidos','Total']];
   clientes.forEach(c => fc.push([c.nombre, c.telefono||'', c.direccion||'', c.cantPedidos||0, c.totalGastado||0]));
@@ -1101,9 +1251,10 @@ function renderPedidoCard(p) {
   const est = p.estado || 'pendiente';
   const cols = { pendiente: {bg:'#fff3e0',border:'#f57c00',chipBg:'#f57c00',label:'⏳ PENDIENTE'}, parcial: {bg:'#fff9c4',border:'#f9a825',chipBg:'#f9a825',label:'💵 PARCIAL'}, pagado: {bg:'#e8f5e9',border:'#2e7d32',chipBg:'#2e7d32',label:'✅ PAGADO'} };
   const c = cols[est] || cols.pendiente;
+  const logTag = (p.logistica && p.logistica > 0) ? `<span style="font-size:10px;color:#5c6bc0;margin-left:4px;">🚚 +$${formatNum(p.logistica)}</span>` : '';
   return `<div style="background:${c.bg};border-left:4px solid ${c.border};padding:12px;border-radius:8px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
-      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span></div>
+      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${logTag}</div>
       <div style="font-size:11px;color:#666;margin-top:4px;">${formatFecha(p.fecha)} · ${p.vendedor||''} · ${p.items.length} ítem${p.items.length!==1?'s':''}</div></div>
       <div style="font-weight:700;font-size:16px;color:var(--navy);">$${formatNum(p.totalFinal)}</div>
     </div>
@@ -1207,7 +1358,6 @@ function formatFecha(iso) { if (!iso) return ''; const [y,m,d] = iso.split('-');
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function showToast(msg, isErr, type) { const t = document.getElementById('toast'); t.textContent = msg; let cls = 'toast show'; if (isErr) cls += ' error'; else if (type === 'success') cls += ' success'; t.className = cls; setTimeout(() => t.classList.remove('show'), 3000); }
 
-/* Close product suggestions when clicking outside */
 document.addEventListener('click', function(e) {
   const sugg = document.getElementById('productoSuggestions');
   const input = document.getElementById('inputBuscarProducto');
