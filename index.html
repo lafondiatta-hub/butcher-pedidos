@@ -122,6 +122,8 @@ input[readonly] { background: #f5f5f5; }
 .btn-add:hover { background: #ede6d8; }
 .btn-danger-small { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 18px; border: none; cursor: pointer; border-radius: 4px; }
 .btn-danger-small:hover { background: #ffebee; }
+.btn-edit-small { background: transparent; color: var(--navy); padding: 4px 8px; font-size: 16px; border: none; cursor: pointer; border-radius: 4px; }
+.btn-edit-small:hover { background: var(--cream); }
 .cart-item {
   background: var(--cream); border-radius: 8px; padding: 12px; margin-bottom: 8px;
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
@@ -130,6 +132,7 @@ input[readonly] { background: #f5f5f5; }
 .cart-item-name { font-weight: 600; font-size: 14px; color: var(--navy); }
 .cart-item-detail { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .cart-item-price { font-weight: 700; color: var(--navy); font-size: 15px; white-space: nowrap; }
+.cart-item-actions { display: flex; gap: 2px; align-items: center; }
 
 /* === LOGÍSTICA CART ITEM === */
 .cart-item-logistica {
@@ -190,6 +193,20 @@ input[readonly] { background: #f5f5f5; }
 .sync-off { background: #fff3e0; color: #e65100; }
 .sync-error { background: #ffebee; color: #c62828; }
 
+/* === DELIVERY / RETIRO === */
+.envio-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.envio-btn { padding: 16px 10px; border: 2px solid #ddd; background: white; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; color: var(--navy); transition: all 0.15s; text-align: center; }
+.envio-btn:hover { border-color: var(--navy); background: var(--cream); }
+.envio-btn.selected[data-envio="delivery"] { border-color: #1565c0; background: #e3f2fd; color: #0d47a1; }
+.envio-btn.selected[data-envio="retiro"] { border-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+.delivery-fields { background: #e3f2fd; border-left: 3px solid #1565c0; border-radius: 8px; padding: 14px; margin-top: 4px; display: none; }
+.delivery-fields.active { display: block; }
+.delivery-fields label { color: #1565c0; }
+.horario-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.horario-btn { padding: 12px 8px; border: 2px solid #90caf9; background: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; color: #1565c0; transition: all 0.15s; text-align: center; }
+.horario-btn:hover { background: #bbdefb; }
+.horario-btn.selected { border-color: #1565c0; background: #1565c0; color: white; }
+
 /* === PRODUCTO SEARCH === */
 .producto-search-container { position: relative; }
 .producto-search-input { padding-left: 36px !important; }
@@ -248,6 +265,7 @@ input[readonly] { background: #f5f5f5; }
   .resumen-page table { font-size: 12px; }
   .resumen-page th, .resumen-page td { padding: 6px 4px; }
   .actions { grid-template-columns: 1fr; }
+  .horario-selector { grid-template-columns: 1fr 1fr; }
 }
 </style>
 </head>
@@ -292,7 +310,7 @@ input[readonly] { background: #f5f5f5; }
 <!-- MODAL AGREGAR PRODUCTO -->
 <div class="modal-overlay" id="modalAgregar">
   <div class="modal">
-    <h3>Agregar Producto</h3>
+    <h3 id="modalAgregarTitulo">Agregar Producto</h3>
     <div class="form-row-full">
       <label>Producto</label>
       <div class="producto-search-container">
@@ -311,7 +329,7 @@ input[readonly] { background: #f5f5f5; }
       <div class="hint" id="hintPrecio"></div>
     </div>
     <div class="row-2" style="margin-top: 16px;">
-      <button class="btn btn-primary" onclick="confirmarAgregar()">Agregar</button>
+      <button class="btn btn-primary" id="btnConfirmarAgregar" onclick="confirmarAgregar()">Agregar</button>
       <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
     </div>
   </div>
@@ -366,10 +384,13 @@ input[readonly] { background: #f5f5f5; }
 
 <script>
 /* ============================================================
- * THE BUTCHER — App v3.2
- * Cambios v3.2:
- *   - Lista de precios actualizada a may.26
- *   - Nuevo ítem "Logística" con importe manual en carrito y resumen
+ * THE BUTCHER — App v3.3
+ * Cambios v3.3:
+ *   - CAMBIO 1: Al marcar pagado desde "Ver pedidos", también 
+ *               actualiza Google Sheets (acción 'actualizarPago')
+ *   - CAMBIO 2: Editar peso/cantidad de ítem ya agregado al carrito
+ *   - CAMBIO 3: Selector Delivery / Retiro con fecha de entrega
+ *               y rango horario (solo para Delivery)
  * ============================================================ */
 
 const CLIENTES_HISTORICOS = [];
@@ -388,11 +409,16 @@ let pedidos = [];
 let clientes = [];
 let listasDisponibles = [];
 let carrito = [];
-let logisticaMonto = 0; // monto de logística (0 = sin logística)
+let logisticaMonto = 0;
 let clienteSeleccionado = null;
 let firebaseListo = false;
 let unsubscribers = [];
 let productoSeleccionadoIdx = null;
+// CAMBIO 2: índice del ítem que se está editando (-1 = agregar nuevo)
+let editandoItemIdx = -1;
+// CAMBIO 3: estado de envío
+let tipoEnvio = 'retiro'; // 'retiro' | 'delivery'
+let horarioSeleccionado = '';
 
 if (window.firebaseReady) { firebaseListo = true; iniciarApp(); }
 else { window.addEventListener('firebase-ready', () => { firebaseListo = true; iniciarApp(); }); }
@@ -404,9 +430,6 @@ async function iniciarApp() {
   `;
   try {
     await cargarDesdeFirebase();
-    if (false && clientes.length < 50 && CLIENTES_HISTORICOS.length > 0) {
-      await importarClientesHistoricos();
-    }
     const localData = {
       productos: JSON.parse(localStorage.getItem('butcher_productos') || '[]'),
       pedidos: JSON.parse(localStorage.getItem('butcher_pedidos') || '[]'),
@@ -434,21 +457,8 @@ async function iniciarApp() {
   }
 }
 
-async function importarClientesHistoricos() {
-  const { collection, addDoc } = window.firebaseFns;
-  const db = window.firebaseDB;
-  const existentes = new Set(clientes.map(c => c.nombre.trim().toLowerCase()));
-  let importados = 0;
-  for (const ch of CLIENTES_HISTORICOS) {
-    if (existentes.has(ch.nombre.trim().toLowerCase())) continue;
-    const nuevoCliente = { nombre: ch.nombre, telefono: ch.telefono || '', direccion: ch.direccion || '', fechaAlta: new Date().toISOString().slice(0,10), ultimoPedido: '', cantPedidos: ch.cantPedidos || 0, totalGastado: ch.totalGastado || 0, notas: 'Importado del historial' };
-    try { const ref = await addDoc(collection(db, 'clientes'), nuevoCliente); clientes.push({ _id: ref.id, ...nuevoCliente }); importados++; } catch(e) { console.error('Error importando cliente:', ch.nombre, e); }
-  }
-  if (importados > 0) showToast(`✅ ${importados} clientes históricos importados`, false, 'success');
-}
-
 async function cargarDesdeFirebase() {
-  const { collection, getDocs, doc, query, orderBy } = window.firebaseFns;
+  const { collection, getDocs, query, orderBy } = window.firebaseFns;
   const db = window.firebaseDB;
   try { const configDocs = await getDocs(collection(db, 'config')); if (!configDocs.empty) { const d = configDocs.docs[0].data(); config = d; listasDisponibles = d.listasDisponibles || []; } else config = null; } catch(e) { config = null; }
   try { const d = await getDocs(collection(db, 'productos')); productos = d.docs.map(x => ({ _id: x.id, ...x.data() })); } catch(e) { productos = []; }
@@ -495,6 +505,32 @@ async function enviarAGoogleSheets(pedido) {
   } catch(err) {
     try { await fetch(url, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); return { success: true, message: 'Enviado (modo no-cors)' }; }
     catch(err2) { return { success: false, error: 'No se pudo conectar: ' + err2.message }; }
+  }
+}
+
+/* ============================================================
+ * CAMBIO 1: Actualizar estado de pago en Google Sheets
+ * Envía acción 'actualizarPago' con el ID del pedido y el nuevo estado
+ * ============================================================ */
+async function actualizarPagoEnSheets(pedido, nuevoEstado, metodoPago, fechaPago) {
+  const url = config && config.sheetsUrl;
+  if (!url) return { success: false, error: 'Sin URL de Sheets' };
+  const payload = JSON.stringify({
+    action: 'actualizarPago',
+    pedidoId: pedido.id || pedido._id,
+    cliente: pedido.cliente,
+    fecha: pedido.fecha,
+    estado: nuevoEstado === 'pagado' ? 'Pagado' : nuevoEstado === 'parcial' ? 'Parcial' : 'Pendiente',
+    metodoPago: metodoPago || '',
+    fechaPago: fechaPago || ''
+  });
+  try {
+    const resp = await fetch(url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload });
+    const text = await resp.text();
+    try { return JSON.parse(text); } catch(e) { return { success: true }; }
+  } catch(err) {
+    try { await fetch(url, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); return { success: true }; }
+    catch(err2) { return { success: false, error: err2.message }; }
   }
 }
 
@@ -566,7 +602,6 @@ function onExcelUpload(event) {
       for (const p of prodNuevos) { const r = await addDoc(collection(db, 'productos'), p); guardados.push({ _id: r.id, ...p }); }
       productos = guardados;
       listasDisponibles = colsPrecios.map(c => c.nombre);
-      // v3.2: al subir Excel nuevo, activar automáticamente la última lista (may.26)
       const listaDefault = listasDisponibles[listasDisponibles.length - 1];
       if (!config) config = { alias: 'thebutcher.lemon', titular: 'Juan Pablo Aduna', listaActiva: listaDefault, listasDisponibles, sheetsUrl: '', vendedor: 'JP' };
       else { config.listaActiva = listaDefault; config.listasDisponibles = listasDisponibles; }
@@ -580,6 +615,10 @@ function onExcelUpload(event) {
 
 /* ============ PANTALLA PRINCIPAL ============ */
 function renderApp() {
+  // Reset estado de envío al renderizar
+  tipoEnvio = 'retiro';
+  horarioSeleccionado = '';
+
   const app = document.getElementById('app');
   app.setAttribute('data-vista', 'main');
   app.innerHTML = `
@@ -619,6 +658,33 @@ function renderApp() {
         <div><label>Dirección <span style="font-weight:400;text-transform:none;color:#999;">(opcional)</span></label><input type="text" id="direccion" placeholder="Calle 123, Piso" autocomplete="off"></div>
       </div>
     </div>
+
+    <!-- ================================================ -->
+    <!-- CAMBIO 3: Selector Delivery / Retiro             -->
+    <!-- ================================================ -->
+    <div class="card">
+      <h2>🚚 Tipo de Entrega</h2>
+      <div class="envio-selector">
+        <button class="envio-btn" data-envio="retiro" onclick="seleccionarEnvio('retiro')">🏪 Retiro</button>
+        <button class="envio-btn" data-envio="delivery" onclick="seleccionarEnvio('delivery')">🚚 Delivery</button>
+      </div>
+      <div class="delivery-fields" id="deliveryFields">
+        <div class="form-row-full" style="margin-bottom:12px;">
+          <label>Fecha de entrega</label>
+          <input type="date" id="fechaEntrega">
+        </div>
+        <div class="form-row-full">
+          <label>Rango horario</label>
+          <div class="horario-selector">
+            <button class="horario-btn" data-horario="11 a 14 hs" onclick="seleccionarHorario(this, '11 a 14 hs')">🕐 11 a 14 hs</button>
+            <button class="horario-btn" data-horario="13 a 17 hs" onclick="seleccionarHorario(this, '13 a 17 hs')">🕑 13 a 17 hs</button>
+            <button class="horario-btn" data-horario="16 a 20 hs" onclick="seleccionarHorario(this, '16 a 20 hs')">🕓 16 a 20 hs</button>
+            <button class="horario-btn" data-horario="Todo el día" onclick="seleccionarHorario(this, 'Todo el día')">☀️ Todo el día</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2>🛒 Productos del Pedido</h2>
       <div id="cartList"><div class="cart-empty">Todavía no agregaste productos</div></div>
@@ -664,29 +730,46 @@ function renderApp() {
   document.getElementById('listaPrecios').value = config.listaActiva;
   if (config.vendedor) document.getElementById('vendedor').value = config.vendedor;
   actualizarBtnLogistica();
+  // Inicializar selector de envío en "Retiro"
+  seleccionarEnvio('retiro');
+}
+
+/* ============================================================
+ * CAMBIO 3: Funciones de Delivery / Retiro
+ * ============================================================ */
+function seleccionarEnvio(tipo) {
+  tipoEnvio = tipo;
+  document.querySelectorAll('.envio-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.querySelector('.envio-btn[data-envio="' + tipo + '"]');
+  if (btn) btn.classList.add('selected');
+  const df = document.getElementById('deliveryFields');
+  if (df) {
+    if (tipo === 'delivery') { df.classList.add('active'); }
+    else { df.classList.remove('active'); horarioSeleccionado = ''; }
+  }
+}
+
+function seleccionarHorario(btn, horario) {
+  horarioSeleccionado = horario;
+  document.querySelectorAll('.horario-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
 }
 
 /* ============ LOGÍSTICA ============ */
 function actualizarBtnLogistica() {
   const btn = document.getElementById('btnAgregarLogistica');
   if (!btn) return;
-  if (logisticaMonto > 0) {
-    btn.style.display = 'none'; // hide add button when logistica is in cart
-  } else {
-    btn.style.display = '';
-  }
+  if (window._logisticaAgregada) btn.style.display = 'none';
+  else btn.style.display = '';
 }
 
 function agregarLogistica() {
+  window._logisticaAgregada = true;
   logisticaMonto = 0;
   renderCarrito();
   actualizarTotales();
   actualizarBtnLogistica();
-  // Focus the logistica input
-  setTimeout(() => {
-    const inp = document.getElementById('inputLogistica');
-    if (inp) inp.focus();
-  }, 50);
+  setTimeout(() => { const inp = document.getElementById('inputLogistica'); if (inp) inp.focus(); }, 50);
 }
 
 function onLogisticaInput(val) {
@@ -695,6 +778,7 @@ function onLogisticaInput(val) {
 }
 
 function quitarLogistica() {
+  window._logisticaAgregada = false;
   logisticaMonto = 0;
   renderCarrito();
   actualizarTotales();
@@ -751,8 +835,13 @@ function mostrarInfoCliente(c) {
 }
 function ocultarInfoCliente() { const b = document.getElementById('clienteInfoBox'); if(b) b.classList.remove('active'); }
 
-/* ============ MODAL AGREGAR PRODUCTO ============ */
+/* ============================================================
+ * CAMBIO 2: Modal agregar/editar producto
+ * ============================================================ */
 function abrirModalAgregar() {
+  editandoItemIdx = -1;
+  document.getElementById('modalAgregarTitulo').textContent = 'Agregar Producto';
+  document.getElementById('btnConfirmarAgregar').textContent = 'Agregar';
   productoSeleccionadoIdx = null;
   document.getElementById('inputBuscarProducto').value = '';
   document.getElementById('inputCantidad').value = '';
@@ -764,23 +853,61 @@ function abrirModalAgregar() {
   document.getElementById('modalAgregar').classList.add('active');
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 100);
 }
-function cerrarModal() { document.getElementById('modalAgregar').classList.remove('active'); }
+
+// CAMBIO 2: Abrir modal en modo edición para un ítem ya cargado
+function abrirModalEditar(idx) {
+  editandoItemIdx = idx;
+  const item = carrito[idx];
+  document.getElementById('modalAgregarTitulo').textContent = 'Editar Producto';
+  document.getElementById('btnConfirmarAgregar').textContent = 'Guardar cambios';
+
+  // Buscar el producto en el catálogo
+  const prodIdx = productos.findIndex(p => p.nombre === item.producto);
+  productoSeleccionadoIdx = prodIdx !== -1 ? prodIdx : null;
+
+  // Ocultar buscador y mostrar el nombre del producto
+  document.getElementById('inputBuscarProducto').style.display = 'none';
+  document.querySelector('.producto-search-icon').style.display = 'none';
+  document.getElementById('productoSuggestions').classList.remove('active');
+
+  const box = document.getElementById('productoSelectedBox');
+  document.getElementById('selProdName').textContent = item.producto;
+  document.getElementById('selProdPrice').textContent = '$' + formatNum(item.precio) + '/' + item.tipo;
+  box.classList.add('active');
+
+  // Mostrar cantidad actual
+  document.getElementById('labelCantidadBox').style.display = 'block';
+  if (item.tipo === 'kg') {
+    document.getElementById('labelCantidad').textContent = 'Peso (kg)';
+    document.getElementById('inputCantidad').step = '0.001';
+    document.getElementById('inputCantidad').placeholder = 'Ej: 1.250';
+    document.getElementById('hintPrecio').textContent = '💡 $' + formatNum(item.precio) + '/kg';
+  } else {
+    document.getElementById('labelCantidad').textContent = 'Cantidad (unidades)';
+    document.getElementById('inputCantidad').step = '1';
+    document.getElementById('inputCantidad').placeholder = 'Ej: 2';
+    document.getElementById('hintPrecio').textContent = '💡 $' + formatNum(item.precio) + '/u';
+  }
+  document.getElementById('inputCantidad').value = item.pesoOCantidad;
+
+  document.getElementById('modalAgregar').classList.add('active');
+  setTimeout(() => document.getElementById('inputCantidad').focus(), 100);
+}
+
+function cerrarModal() {
+  document.getElementById('modalAgregar').classList.remove('active');
+  editandoItemIdx = -1;
+}
 
 function onProductoSearchInput() {
   const input = document.getElementById('inputBuscarProducto');
   const valor = normalizar(input.value);
   const sugg = document.getElementById('productoSuggestions');
-
-  if (valor.length < 1) {
-    mostrarTodosProductos(sugg);
-    return;
-  }
-
+  if (valor.length < 1) { mostrarTodosProductos(sugg); return; }
   const disp = productos
     .map((p, i) => ({ ...p, idx: i }))
     .filter(p => p.precios && p.precios[config.listaActiva] > 0)
     .filter(p => normalizar(p.nombre).includes(valor) || normalizar(p.categoria || '').includes(valor));
-
   if (disp.length > 0) {
     sugg.innerHTML = disp.map(p => {
       const precio = p.precios[config.listaActiva];
@@ -797,13 +924,9 @@ function onProductoSearchInput() {
 }
 
 function mostrarTodosProductos(sugg) {
-  const disp = productos
-    .map((p, i) => ({ ...p, idx: i }))
-    .filter(p => p.precios && p.precios[config.listaActiva] > 0);
-  
+  const disp = productos.map((p, i) => ({ ...p, idx: i })).filter(p => p.precios && p.precios[config.listaActiva] > 0);
   const cats = {};
   disp.forEach(p => { const c = p.categoria || 'Otros'; if (!cats[c]) cats[c] = []; cats[c].push(p); });
-  
   let html = '';
   Object.keys(cats).sort().forEach(cat => {
     html += `<div style="padding:6px 12px;background:#f5f5f5;font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(cat)}</div>`;
@@ -823,16 +946,13 @@ function seleccionarProducto(idx) {
   const p = productos[idx];
   const precio = p.precios[config.listaActiva];
   productoSeleccionadoIdx = idx;
-
   document.getElementById('inputBuscarProducto').style.display = 'none';
   document.querySelector('.producto-search-icon').style.display = 'none';
   document.getElementById('productoSuggestions').classList.remove('active');
-
   const box = document.getElementById('productoSelectedBox');
   document.getElementById('selProdName').textContent = p.nombre;
   document.getElementById('selProdPrice').textContent = '$' + formatNum(precio) + '/' + p.tipo;
   box.classList.add('active');
-
   document.getElementById('labelCantidadBox').style.display = 'block';
   if (p.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
@@ -859,10 +979,25 @@ function limpiarProductoSeleccionado() {
   document.getElementById('inputBuscarProducto').focus();
 }
 
+// CAMBIO 2: confirmarAgregar ahora maneja tanto agregar como editar
 function confirmarAgregar() {
-  if (productoSeleccionadoIdx === null) { showToast('Seleccioná un producto', true); return; }
   const cant = parseFloat(document.getElementById('inputCantidad').value);
   if (!cant || cant <= 0) { showToast('Ingresá la cantidad', true); return; }
+
+  if (editandoItemIdx >= 0) {
+    // Modo edición: actualizar el ítem existente
+    const item = carrito[editandoItemIdx];
+    item.pesoOCantidad = cant;
+    item.subtotal = cant * item.precio;
+    renderCarrito();
+    actualizarTotales();
+    cerrarModal();
+    showToast('✓ Producto actualizado');
+    return;
+  }
+
+  // Modo agregar: comportamiento original
+  if (productoSeleccionadoIdx === null) { showToast('Seleccioná un producto', true); return; }
   const p = productos[productoSeleccionadoIdx], precio = p.precios[config.listaActiva];
   carrito.push({ producto: p.nombre, tipo: p.tipo, pesoOCantidad: cant, precio, subtotal: cant * precio });
   renderCarrito(); actualizarTotales(); cerrarModal(); showToast('Producto agregado ✓');
@@ -870,31 +1005,28 @@ function confirmarAgregar() {
 
 function eliminarItem(idx) { carrito.splice(idx, 1); renderCarrito(); actualizarTotales(); }
 
+// CAMBIO 2: renderCarrito ahora incluye botón de editar en cada ítem
 function renderCarrito() {
   const c = document.getElementById('cartList');
-  // Determinar si mostrar logistica row
-  const tieneLogistica = logisticaMonto > 0 || document.getElementById('inputLogistica') !== null;
-  // logística se considera "en el carrito" si fue agregada (incluso con monto 0 temporal)
-  const logisticaAgregada = window._logisticaAgregada || false;
-
-  if (carrito.length === 0 && !logisticaAgregada) {
+  if (carrito.length === 0 && !window._logisticaAgregada) {
     c.innerHTML = '<div class="cart-empty">Todavía no agregaste productos</div>';
     return;
   }
-
   let html = carrito.map((item, idx) => `
     <div class="cart-item">
       <div class="cart-item-info">
         <div class="cart-item-name">${escapeHtml(item.producto)}</div>
-        <div class="cart-item-detail">${item.pesoOCantidad} ${item.tipo==='kg'?'kg':'u'} × $${formatNum(item.precio)}</div>
+        <div class="cart-item-detail">${item.tipo==='kg' ? item.pesoOCantidad.toFixed(3)+' kg' : item.pesoOCantidad+' u'} × $${formatNum(item.precio)}</div>
       </div>
       <div class="cart-item-price">$${formatNum(item.subtotal)}</div>
-      <button class="btn-danger-small" onclick="eliminarItem(${idx})">✕</button>
+      <div class="cart-item-actions">
+        <button class="btn-edit-small" onclick="abrirModalEditar(${idx})" title="Editar cantidad">✏️</button>
+        <button class="btn-danger-small" onclick="eliminarItem(${idx})">✕</button>
+      </div>
     </div>
   `).join('');
 
-  // Row de logística si fue agregada
-  if (logisticaAgregada) {
+  if (window._logisticaAgregada) {
     html += `
       <div class="cart-item-logistica">
         <div class="cart-item-info">
@@ -904,36 +1036,12 @@ function renderCarrito() {
         <input type="number" id="inputLogistica" class="logistica-input" 
           placeholder="$0" min="0" step="100"
           value="${logisticaMonto > 0 ? logisticaMonto : ''}"
-          oninput="onLogisticaInput(this.value)"
-          placeholder="Importe">
+          oninput="onLogisticaInput(this.value)">
         <button class="btn-danger-small" onclick="quitarLogistica()" style="color:#5c6bc0;">✕</button>
       </div>
     `;
   }
-
   c.innerHTML = html;
-}
-
-/* Override agregarLogistica to track state */
-const _agregarLogisticaOrig = agregarLogistica;
-function agregarLogistica() {
-  window._logisticaAgregada = true;
-  logisticaMonto = 0;
-  renderCarrito();
-  actualizarTotales();
-  actualizarBtnLogistica();
-  setTimeout(() => {
-    const inp = document.getElementById('inputLogistica');
-    if (inp) inp.focus();
-  }, 50);
-}
-
-const _quitarLogisticaOrig = quitarLogistica;
-function quitarLogistica() {
-  window._logisticaAgregada = false;
-  logisticaMonto = 0;
-  renderCarrito();
-  actualizarTotales();
   actualizarBtnLogistica();
 }
 
@@ -942,33 +1050,18 @@ function actualizarTotales() {
   const dp = parseFloat(document.getElementById('descuento') ? document.getElementById('descuento').value : '0') || 0;
   const dm = sub * (dp / 100);
   const tot = sub - dm + logisticaMonto;
-
   const subtotalEl = document.getElementById('subtotalDisplay');
   const totalEl = document.getElementById('totalDisplay');
   const totalesBox = document.getElementById('totalesBox');
   const logisticaRow = document.getElementById('logisticaRow');
   const logisticaDisplay = document.getElementById('logisticaDisplay');
-
   if (!subtotalEl) return;
-
   subtotalEl.textContent = '$' + formatNum(sub);
   totalEl.textContent = '$' + formatNum(tot);
-
-  if (logisticaMonto > 0 && logisticaRow) {
-    logisticaRow.style.display = 'flex';
-    logisticaDisplay.textContent = '$' + formatNum(logisticaMonto);
-  } else if (logisticaRow) {
-    logisticaRow.style.display = 'none';
-  }
-
-  if (dp > 0) {
-    document.getElementById('descuentoRow').style.display = 'flex';
-    document.getElementById('descuentoPct').textContent = '(' + dp + '%)';
-    document.getElementById('descuentoMontoDisplay').textContent = '-$' + formatNum(dm);
-  } else {
-    document.getElementById('descuentoRow').style.display = 'none';
-  }
-
+  if (logisticaMonto > 0 && logisticaRow) { logisticaRow.style.display = 'flex'; logisticaDisplay.textContent = '$' + formatNum(logisticaMonto); }
+  else if (logisticaRow) logisticaRow.style.display = 'none';
+  if (dp > 0) { document.getElementById('descuentoRow').style.display = 'flex'; document.getElementById('descuentoPct').textContent = '(' + dp + '%)'; document.getElementById('descuentoMontoDisplay').textContent = '-$' + formatNum(dm); }
+  else document.getElementById('descuentoRow').style.display = 'none';
   const mostrar = carrito.length > 0 || window._logisticaAgregada;
   if (totalesBox) totalesBox.style.display = mostrar ? 'block' : 'none';
   const btnGenerar = document.getElementById('btnGenerar');
@@ -983,8 +1076,18 @@ async function generarResumen() {
   const fecha = document.getElementById('fecha').value;
   const vendedor = document.getElementById('vendedor').value;
   const estadoPedido = document.getElementById('estadoPedido').value;
+
   if (!cliente) { showToast('Ingresá el nombre del cliente', true); return; }
   if (carrito.length === 0) { showToast('Agregá al menos un producto', true); return; }
+
+  // CAMBIO 3: validar campos de delivery
+  let fechaEntrega = '';
+  if (tipoEnvio === 'delivery') {
+    fechaEntrega = document.getElementById('fechaEntrega') ? document.getElementById('fechaEntrega').value : '';
+    if (!fechaEntrega) { showToast('Seleccioná la fecha de entrega', true); return; }
+    if (!horarioSeleccionado) { showToast('Seleccioná el rango horario', true); return; }
+  }
+
   const sub = carrito.reduce((s, i) => s + i.subtotal, 0);
   const dp = parseFloat(document.getElementById('descuento').value) || 0;
   const dm = sub * (dp / 100);
@@ -993,6 +1096,9 @@ async function generarResumen() {
     id: 'PED-' + Date.now(), cliente, telefono, direccion, fecha, vendedor,
     listaPrecios: config.listaActiva, items: [...carrito],
     logistica: logisticaMonto,
+    tipoEnvio,          // CAMBIO 3
+    fechaEntrega,       // CAMBIO 3
+    horario: horarioSeleccionado, // CAMBIO 3
     subtotalPedido: sub, descuentoPct: dp, descuentoMonto: dm, totalFinal: tot,
     alias: config.alias, titular: config.titular, timestamp: new Date().toISOString()
   };
@@ -1034,8 +1140,15 @@ async function guardarPedidoEnFirebase(pedido) {
 
 function renderResumen(p) {
   const fechaFmt = formatFecha(p.fecha);
+  // CAMBIO 3: info de entrega en el resumen
+  const entregaHTML = p.tipoEnvio === 'delivery'
+    ? `<div style="background:#e3f2fd;border-left:3px solid #1565c0;padding:10px 12px;border-radius:6px;margin-bottom:12px;font-size:13px;">
+        🚚 <b>Delivery</b> · ${formatFecha(p.fechaEntrega)} · ⏰ ${p.horario}
+       </div>`
+    : `<div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:10px 12px;border-radius:6px;margin-bottom:12px;font-size:13px;">
+        🏪 <b>Retiro en local</b>
+       </div>`;
   const itemsRows = p.items.map(i => `<tr><td>${escapeHtml(i.producto)}</td><td class="num">${i.tipo==='kg'?i.pesoOCantidad.toFixed(3):'-'}</td><td class="num">${i.tipo==='unidad'?i.pesoOCantidad:'-'}</td><td class="num">$${formatNum(i.precio)}</td><td class="num bold">$${formatNum(i.subtotal)}</td></tr>`).join('');
-  // Logística row en tabla si aplica
   const logisticaRow = (p.logistica && p.logistica > 0)
     ? `<tr style="background:#f0f4ff;"><td><b>🚚 Logística</b></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num bold" style="color:#3949ab;">$${formatNum(p.logistica)}</td></tr>`
     : '';
@@ -1049,6 +1162,7 @@ function renderResumen(p) {
         <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Logo" class="logo-img" style="background:var(--navy);">
         <div class="cliente-box"><div class="datos"><div><b>Cliente:</b> ${escapeHtml(p.cliente)}</div><div><b>Fecha:</b> ${fechaFmt}</div><div><b>Vendedor:</b> ${escapeHtml(p.vendedor||'')}</div></div>${ciHTML}</div>
       </div>
+      ${entregaHTML}
       <div class="section-title">💬 Detalle del Pedido</div>
       <table><thead><tr><th>Producto</th><th class="num">Kg</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>${itemsRows}${logisticaRow}</tbody></table>
       <div class="bottom">
@@ -1090,7 +1204,14 @@ function descargarImagen() {
 function compartirWhatsApp() {
   const p = JSON.parse(sessionStorage.getItem('pedidoActual'));
   let msg = `*🥩 THE BUTCHER - Resumen*\n\n*Cliente:* ${p.cliente}\n*Fecha:* ${formatFecha(p.fecha)}\n`;
-  if (p.telefono) msg += `*Tel:* ${p.telefono}\n`; if (p.direccion) msg += `*Dir:* ${p.direccion}\n`;
+  if (p.telefono) msg += `*Tel:* ${p.telefono}\n`;
+  if (p.direccion) msg += `*Dir:* ${p.direccion}\n`;
+  // CAMBIO 3: incluir info de entrega en WhatsApp
+  if (p.tipoEnvio === 'delivery') {
+    msg += `*Entrega:* 🚚 Delivery ${formatFecha(p.fechaEntrega)} · ⏰ ${p.horario}\n`;
+  } else {
+    msg += `*Entrega:* 🏪 Retiro en local\n`;
+  }
   msg += `\n*Detalle:*\n`;
   p.items.forEach(i => { const qty = i.tipo==='kg'?i.pesoOCantidad.toFixed(3)+' kg':i.pesoOCantidad+' u'; msg += `• ${i.producto} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`; });
   if (p.logistica && p.logistica > 0) msg += `• 🚚 Logística = *$${formatNum(p.logistica)}*\n`;
@@ -1190,8 +1311,8 @@ function actualizarPrecios() {
 function exportarPedidosExcel() {
   if (pedidos.length === 0) { showToast('No hay pedidos', true); return; }
   const wb = XLSX.utils.book_new();
-  const fp = [['ID','Fecha','Vendedor','Cliente','Telefono','Direccion','Items','Subtotal','Logistica','Desc%','Desc$','Total','Estado','Metodo','Fecha Cobro']];
-  pedidos.forEach(p => fp.push([p.id||p._id, p.fecha, p.vendedor||'', p.cliente, p.telefono||'', p.direccion||'', p.items.length, p.subtotalPedido, p.logistica||0, p.descuentoPct||0, p.descuentoMonto||0, p.totalFinal, p.estado||'pendiente', p.metodoPago||'', p.fechaPago||'']));
+  const fp = [['ID','Fecha','Vendedor','Cliente','Telefono','Direccion','Tipo Envio','Fecha Entrega','Horario','Items','Subtotal','Logistica','Desc%','Desc$','Total','Estado','Metodo','Fecha Cobro']];
+  pedidos.forEach(p => fp.push([p.id||p._id, p.fecha, p.vendedor||'', p.cliente, p.telefono||'', p.direccion||'', p.tipoEnvio||'', p.fechaEntrega||'', p.horario||'', p.items.length, p.subtotalPedido, p.logistica||0, p.descuentoPct||0, p.descuentoMonto||0, p.totalFinal, p.estado||'pendiente', p.metodoPago||'', p.fechaPago||'']));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fp), 'Pedidos');
   const fd = [['ID Pedido','Fecha','Cliente','Producto','Tipo','Cantidad','Precio','Subtotal']];
   pedidos.forEach(p => {
@@ -1252,10 +1373,18 @@ function renderPedidoCard(p) {
   const cols = { pendiente: {bg:'#fff3e0',border:'#f57c00',chipBg:'#f57c00',label:'⏳ PENDIENTE'}, parcial: {bg:'#fff9c4',border:'#f9a825',chipBg:'#f9a825',label:'💵 PARCIAL'}, pagado: {bg:'#e8f5e9',border:'#2e7d32',chipBg:'#2e7d32',label:'✅ PAGADO'} };
   const c = cols[est] || cols.pendiente;
   const logTag = (p.logistica && p.logistica > 0) ? `<span style="font-size:10px;color:#5c6bc0;margin-left:4px;">🚚 +$${formatNum(p.logistica)}</span>` : '';
+  // CAMBIO 3: mostrar tipo de envío y fecha/horario en la card
+  const envioTag = p.tipoEnvio === 'delivery'
+    ? `<div style="font-size:11px;color:#1565c0;margin-top:3px;">🚚 Delivery · ${formatFecha(p.fechaEntrega)} · ⏰ ${p.horario||''}</div>`
+    : p.tipoEnvio === 'retiro'
+    ? `<div style="font-size:11px;color:#2e7d32;margin-top:3px;">🏪 Retiro</div>`
+    : '';
   return `<div style="background:${c.bg};border-left:4px solid ${c.border};padding:12px;border-radius:8px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
       <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${logTag}</div>
-      <div style="font-size:11px;color:#666;margin-top:4px;">${formatFecha(p.fecha)} · ${p.vendedor||''} · ${p.items.length} ítem${p.items.length!==1?'s':''}</div></div>
+      <div style="font-size:11px;color:#666;margin-top:4px;">${formatFecha(p.fecha)} · ${p.vendedor||''} · ${p.items.length} ítem${p.items.length!==1?'s':''}</div>
+      ${envioTag}
+      </div>
       <div style="font-weight:700;font-size:16px;color:var(--navy);">$${formatNum(p.totalFinal)}</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;">
@@ -1301,6 +1430,9 @@ function marcarPagado(id) {
   document.querySelectorAll('.metodo-pago-btn').forEach(b => b.classList.remove('selected'));
   document.getElementById('cobroSeccionParcial').style.display = 'none';
   document.getElementById('cobroTipo').value = 'completo';
+  document.querySelectorAll('.tipo-pago-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector('.tipo-pago-btn[data-tipo="completo"]').classList.add('selected');
+  document.getElementById('cobroMetodo').value = '';
   document.getElementById('modalCobro').classList.add('active');
 }
 
@@ -1314,6 +1446,7 @@ async function confirmarCobro() {
   const notas = document.getElementById('cobroNotas').value.trim();
   const tipo = document.getElementById('cobroTipo').value;
   if (!metodo) { showToast('Elegí método de pago', true); return; }
+
   if (pedidoNuevoPendiente) {
     const ped = pedidoNuevoPendiente;
     if (tipo === 'parcial') { const m = parseFloat(document.getElementById('cobroMontoParcial').value); if (!m||m<=0||m>=ped.totalFinal) { showToast('Monto parcial inválido', true); return; } ped.estado = 'parcial'; ped.montoParcial = m; }
@@ -1325,17 +1458,53 @@ async function confirmarCobro() {
     renderResumen(ped);
     return;
   }
+
   if (!pedidoIdCobro) return;
   const ped = pedidos.find(p => p._id === pedidoIdCobro); if (!ped) return;
   const upd = { metodoPago: metodo, fechaPago: fecha, notasCobro: notas };
   if (tipo === 'parcial') { const m = parseFloat(document.getElementById('cobroMontoParcial').value); if (!m||m<=0||m>=ped.totalFinal) { showToast('Monto inválido', true); return; } upd.estado = 'parcial'; upd.montoParcial = m; }
   else { upd.estado = 'pagado'; upd.montoParcial = ped.totalFinal; }
-  try { const { updateDoc, doc } = window.firebaseFns; await updateDoc(doc(window.firebaseDB, 'pedidos', pedidoIdCobro), upd); cerrarModalCobro(); showToast('✅ Cobro registrado', false, 'success'); } catch(e) { showToast('Error: '+e.message, true); }
+
+  try {
+    const { updateDoc, doc } = window.firebaseFns;
+    await updateDoc(doc(window.firebaseDB, 'pedidos', pedidoIdCobro), upd);
+
+    // ============================================================
+    // CAMBIO 1: Sincronizar estado de pago con Google Sheets
+    // ============================================================
+    if (config && config.sheetsUrl) {
+      const pedActualizado = { ...ped, ...upd };
+      const sheetsResult = await actualizarPagoEnSheets(
+        pedActualizado,
+        upd.estado,
+        metodo,
+        fecha
+      );
+      if (sheetsResult.success) {
+        showToast('✅ Cobro registrado · Sheets actualizado', false, 'success');
+      } else {
+        showToast('✅ Cobro en Firebase · ⚠️ Sheets: ' + (sheetsResult.error || 'sin confirmar'), true);
+      }
+    } else {
+      showToast('✅ Cobro registrado', false, 'success');
+    }
+
+    cerrarModalCobro();
+  } catch(e) { showToast('Error: '+e.message, true); }
 }
 
 async function marcarPendiente(id) {
   if (!confirm('¿Revertir a pendiente?')) return;
-  try { const { updateDoc, doc } = window.firebaseFns; await updateDoc(doc(window.firebaseDB, 'pedidos', id), { estado: 'pendiente', metodoPago: '', fechaPago: '' }); showToast('↩️ Revertido', false, 'success'); } catch(e) { showToast('Error: '+e.message, true); }
+  try {
+    const { updateDoc, doc } = window.firebaseFns;
+    await updateDoc(doc(window.firebaseDB, 'pedidos', id), { estado: 'pendiente', metodoPago: '', fechaPago: '' });
+    // CAMBIO 1: también actualizar en Sheets al revertir
+    if (config && config.sheetsUrl) {
+      const ped = pedidos.find(p => p._id === id);
+      if (ped) await actualizarPagoEnSheets(ped, 'pendiente', '', '');
+    }
+    showToast('↩️ Revertido', false, 'success');
+  } catch(e) { showToast('Error: '+e.message, true); }
 }
 
 function verDetallePedido(id) { const p = pedidos.find(x => x._id === id); if (!p) return; sessionStorage.setItem('pedidoActual', JSON.stringify(p)); renderResumen(p); }
@@ -1356,7 +1525,7 @@ async function eliminarPedido(id) {
 function formatNum(n) { return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function formatFecha(iso) { if (!iso) return ''; const [y,m,d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; }
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-function showToast(msg, isErr, type) { const t = document.getElementById('toast'); t.textContent = msg; let cls = 'toast show'; if (isErr) cls += ' error'; else if (type === 'success') cls += ' success'; t.className = cls; setTimeout(() => t.classList.remove('show'), 3000); }
+function showToast(msg, isErr, type) { const t = document.getElementById('toast'); t.textContent = msg; let cls = 'toast show'; if (isErr) cls += ' error'; else if (type === 'success') cls += ' success'; t.className = cls; setTimeout(() => t.classList.remove('show'), 3500); }
 
 document.addEventListener('click', function(e) {
   const sugg = document.getElementById('productoSuggestions');
