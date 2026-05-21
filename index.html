@@ -65,6 +65,14 @@ body {
 }
 .header h1 { font-size: 22px; letter-spacing: 2px; font-weight: 700; }
 .header p { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+.header { position: relative; }
+.btn-home {
+  position: absolute; top: 12px; right: 12px;
+  background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3);
+  padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.btn-home:hover { background: rgba(255,255,255,0.25); }
 .card {
   background: white;
   border-radius: var(--radius);
@@ -757,6 +765,7 @@ function renderApp() {
   app.setAttribute('data-vista', 'main');
   app.innerHTML = `
     <div class="header">
+      <button class="btn-home" onclick="irAInicio()" title="Limpiar y volver a inicio">🧹 Limpiar</button>
       <h1>🥩 THE BUTCHER</h1>
       <p>Carga de Pedidos</p>
       <div>${getSheetsStatus()}</div>
@@ -1487,7 +1496,7 @@ function renderResumen(p) {
   const logisticaResumenHTML = (p.logistica && p.logistica > 0) ? `<div class="resumen-row"><span>🚚 Logística</span><span class="num" style="color:#3949ab;">$${formatNum(p.logistica)}</span></div>` : '';
   const ciHTML = (p.telefono||p.direccion) ? `<div style="font-size:12px;color:#666;margin-top:4px;">${p.telefono?'📞 '+escapeHtml(p.telefono):''}${p.telefono&&p.direccion?' · ':''}${p.direccion?'📍 '+escapeHtml(p.direccion):''}</div>` : '';
   document.getElementById('app').innerHTML = `
-    <div class="header"><h1>🥩 THE BUTCHER</h1><p>Resumen del Pedido</p></div>
+    <div class="header"><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><h1>🥩 THE BUTCHER</h1><p>Resumen del Pedido</p></div>
     <div class="resumen-page" id="resumenCaptura">
       <div class="top">
         <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Logo" class="logo-img" style="background:var(--navy);">
@@ -1527,6 +1536,20 @@ function volverAPedidos() {
   pedidoOriginalSheets = null;
   horarioPersonalizado = '';
   renderApp();
+}
+
+// Botón "🏠 Inicio" disponible en todos los headers.
+// Si hay edición de pedido en curso o items en carrito, pide confirmación.
+function irAInicio() {
+  const hayEdicion = !!editandoPedidoId;
+  const hayCarrito = carrito.length > 0 || window._logisticaAgregada;
+  if (hayEdicion || hayCarrito) {
+    const msg = hayEdicion
+      ? '¿Salir de la edición? Los cambios no se guardan.'
+      : '¿Volver a inicio? Se descarta el pedido en curso.';
+    if (!confirm(msg)) return;
+  }
+  volverAPedidos();
 }
 
 function descargarImagen() {
@@ -1703,7 +1726,7 @@ function renderPedidos() {
   });
   const totalPC = pf.filter(p => (p.estado||'pendiente')!=='pagado').reduce((s, p) => s + (p.totalFinal-(p.montoParcial||0)), 0);
   document.getElementById('app').innerHTML = `
-    <div class="header"><h1>🥩 THE BUTCHER</h1><p>Seguimiento</p></div>
+    <div class="header"><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><h1>🥩 THE BUTCHER</h1><p>Seguimiento</p></div>
     <div class="card"><h2>🔍 Filtros</h2>
       <div class="form-row-full"><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
       <div class="form-row-full"><label>Buscar cliente</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre"></div>
