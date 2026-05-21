@@ -401,6 +401,51 @@ input[readonly] { background: #f5f5f5; }
   </div>
 </div>
 
+<!-- MODAL IMPORTAR PEDIDO (OCR / texto) -->
+<div class="modal-overlay" id="modalImportar">
+  <div class="modal" style="max-width:580px;">
+    <h3>📷 Cargar pedido desde foto o texto</h3>
+    <p style="font-size:13px; color:#666; margin-bottom:12px;">
+      Subí una foto del pedido (screenshot de WhatsApp, papel, lista, etc.) o pegá el texto. La IA extrae cliente, productos y datos, y los carga en el formulario.
+    </p>
+
+    <!-- Drop zone para imagen -->
+    <label class="file-input-wrapper" id="importarDropZone" style="margin-bottom:12px;">
+      <div class="icon">🖼️</div>
+      <div class="text">Subir o pegar imagen</div>
+      <div class="hint">JPG / PNG / WEBP — o pegá con Cmd+V acá</div>
+      <input type="file" id="importarArchivo" accept="image/*" onchange="onImportarArchivoSeleccionado(event)">
+    </label>
+    <div id="importarImagenPreview" style="display:none; margin-bottom:12px; text-align:center;">
+      <img id="importarImg" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid #ddd;">
+      <button class="btn-chip btn-chip-red" onclick="quitarImagenImportar()" style="margin-top:6px;">✕ Quitar imagen</button>
+    </div>
+
+    <div style="text-align:center; color:#999; font-size:11px; margin:10px 0; text-transform:uppercase; letter-spacing:1px;">— o —</div>
+
+    <!-- Textarea para texto -->
+    <div class="form-row-full">
+      <label>Pegar texto del pedido</label>
+      <textarea id="importarTexto" placeholder="Ej:&#10;Hola, necesito 2 kg de asado, 1 kg de vacío y 6 chorizos. Entregar viernes a las 18 hs en Av. Cabildo 1234. Soy Juan, 1133334444." rows="5" style="width:100%; padding:12px; border:1px solid var(--gray-border); border-radius:8px; font-size:14px; font-family:inherit; resize:vertical;"></textarea>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;">
+      <button class="btn btn-primary" id="btnProcesarImportar" onclick="procesarImportarPedido()">🤖 Procesar con IA</button>
+      <button class="btn btn-secondary" onclick="cerrarImportarPedido()">Cancelar</button>
+    </div>
+
+    <!-- Preview de datos extraídos -->
+    <div id="importarResultado" style="display:none; margin-top:16px; background:#e8f5e9; border-left:4px solid #2e7d32; border-radius:8px; padding:14px;">
+      <div style="font-weight:700; color:#1b5e20; margin-bottom:8px;">✓ Datos extraídos</div>
+      <pre id="importarResultadoBody" style="white-space:pre-wrap; font-family:inherit; font-size:13px; color:#222; margin:0 0 12px 0; line-height:1.5;"></pre>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <button class="btn btn-primary" onclick="aplicarImportacionAlFormulario()">✓ Aplicar al formulario</button>
+        <button class="btn btn-secondary" onclick="descartarImportacion()">Descartar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL FICHA CALENDAR -->
 <div class="modal-overlay" id="modalFichaCalendar">
   <div class="modal" style="max-width:560px;">
@@ -718,6 +763,7 @@ function renderApp() {
     </div>
     <div class="card">
       <h2>📋 Datos del Pedido</h2>
+      <button class="btn btn-add" onclick="abrirImportarPedido()" style="margin-bottom:12px; background:#e8f5e9; border-color:#2e7d32; color:#1b5e20;">📷 Cargar desde foto o texto (IA)</button>
       <div class="form-row">
         <div><label>Fecha</label><input type="date" id="fecha"></div>
         <div><label>Lista de Precios</label><input type="text" id="listaPrecios" readonly></div>
@@ -2141,6 +2187,258 @@ function agendarEnCalendarDesdeResumen() {
   if (!raw) { showToast('No hay pedido activo', true); return; }
   try { abrirFichaCalendar(JSON.parse(raw)); }
   catch(e) { showToast('Error leyendo el pedido', true); }
+}
+
+/* ============================================================
+ * FASE 3 — IMPORTAR PEDIDO POR OCR / TEXTO (Gemini via Apps Script)
+ * El frontend envía imagen (base64) o texto al Apps Script con
+ * action='extraerPedido'. El AS llama a Gemini con un prompt JSON
+ * estructurado y devuelve los datos para autocompletar el form.
+ * ============================================================ */
+
+let importarImagenBase64 = null;
+let importarDatosExtraidos = null;
+
+function abrirImportarPedido() {
+  if (!config || !config.sheetsUrl) {
+    showToast('Configurá primero la URL de Google Sheets (la IA corre ahí)', true);
+    return;
+  }
+  importarImagenBase64 = null;
+  importarDatosExtraidos = null;
+  document.getElementById('importarArchivo').value = '';
+  document.getElementById('importarTexto').value = '';
+  document.getElementById('importarImg').src = '';
+  document.getElementById('importarImagenPreview').style.display = 'none';
+  document.getElementById('importarResultado').style.display = 'none';
+  document.getElementById('btnProcesarImportar').disabled = false;
+  document.getElementById('btnProcesarImportar').textContent = '🤖 Procesar con IA';
+  document.getElementById('modalImportar').classList.add('active');
+}
+
+function cerrarImportarPedido() {
+  document.getElementById('modalImportar').classList.remove('active');
+  importarImagenBase64 = null;
+  importarDatosExtraidos = null;
+}
+
+function onImportarArchivoSeleccionado(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Subí una imagen (JPG/PNG/WEBP)', true); return; }
+  cargarImagenComoBase64(file);
+}
+
+function cargarImagenComoBase64(file) {
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    // ev.target.result = "data:image/png;base64,XXXXX"
+    const dataUrl = ev.target.result;
+    importarImagenBase64 = dataUrl;
+    document.getElementById('importarImg').src = dataUrl;
+    document.getElementById('importarImagenPreview').style.display = 'block';
+  };
+  reader.onerror = function() { showToast('Error leyendo la imagen', true); };
+  reader.readAsDataURL(file);
+}
+
+function quitarImagenImportar() {
+  importarImagenBase64 = null;
+  document.getElementById('importarImg').src = '';
+  document.getElementById('importarImagenPreview').style.display = 'none';
+  document.getElementById('importarArchivo').value = '';
+}
+
+// Soporte de paste de imagen en el modal
+document.addEventListener('paste', function(e) {
+  const modal = document.getElementById('modalImportar');
+  if (!modal || !modal.classList.contains('active')) return;
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.type && it.type.startsWith('image/')) {
+      const blob = it.getAsFile();
+      if (blob) { cargarImagenComoBase64(blob); e.preventDefault(); return; }
+    }
+  }
+});
+
+async function procesarImportarPedido() {
+  const texto = document.getElementById('importarTexto').value.trim();
+  if (!importarImagenBase64 && !texto) {
+    showToast('Subí una imagen o pegá texto del pedido', true);
+    return;
+  }
+  const btn = document.getElementById('btnProcesarImportar');
+  btn.disabled = true; btn.textContent = '🤖 Procesando...';
+
+  try {
+    const payload = {
+      action: 'extraerPedido',
+      texto: texto || null,
+      imagenBase64: importarImagenBase64 || null,
+      catalogo: productos.slice(0, 80).map(p => p.nombre), // ayuda a Gemini a hacer match con el catálogo
+      listaActiva: config.listaActiva || null
+    };
+    let resp, text;
+    try {
+      resp = await fetch(config.sheetsUrl, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      text = await resp.text();
+    } catch(corsErr) {
+      // En modo no-cors no podemos leer la respuesta — informar al usuario
+      btn.disabled = false; btn.textContent = '🤖 Procesar con IA';
+      showToast('No se puede leer la respuesta del Apps Script (CORS). Pegá un texto o configurá CORS.', true);
+      return;
+    }
+    let result;
+    try { result = JSON.parse(text); }
+    catch(e) {
+      btn.disabled = false; btn.textContent = '🤖 Procesar con IA';
+      showToast('Respuesta inválida del Apps Script: ' + text.slice(0, 100), true);
+      return;
+    }
+    if (!result.success) {
+      btn.disabled = false; btn.textContent = '🤖 Procesar con IA';
+      showToast('Error IA: ' + (result.error || 'desconocido'), true);
+      return;
+    }
+    importarDatosExtraidos = result.datos || {};
+    mostrarPreviewImportacion(importarDatosExtraidos);
+    btn.disabled = false; btn.textContent = '🤖 Procesar de nuevo';
+  } catch(e) {
+    btn.disabled = false; btn.textContent = '🤖 Procesar con IA';
+    showToast('Error: ' + e.message, true);
+  }
+}
+
+function mostrarPreviewImportacion(d) {
+  const lineas = [];
+  if (d.cliente) lineas.push('👤 Cliente: ' + d.cliente);
+  if (d.telefono) lineas.push('📞 Teléfono: ' + d.telefono);
+  if (d.direccion) lineas.push('📍 Dirección: ' + d.direccion);
+  if (d.fecha) lineas.push('📅 Fecha: ' + d.fecha);
+  if (d.vendedor) lineas.push('🧑‍💼 Vendedor: ' + d.vendedor);
+  if (d.tipoEnvio) lineas.push('🚚 Tipo de entrega: ' + d.tipoEnvio);
+  if (d.fechaEntrega) lineas.push('📆 Fecha de entrega: ' + d.fechaEntrega);
+  if (d.horario) lineas.push('⏰ Horario: ' + d.horario);
+  if (d.items && d.items.length) {
+    lineas.push('');
+    lineas.push('📦 Items:');
+    d.items.forEach(it => {
+      const qty = it.cantidad ? (it.tipo === 'kg' ? it.cantidad + 'kg' : it.cantidad + 'u') : '⏳ pendiente';
+      const precio = it.precio ? ' · $' + formatNum(it.precio) : '';
+      lineas.push('   • ' + it.producto + ' — ' + qty + precio);
+    });
+  }
+  if (d.notas) { lineas.push(''); lineas.push('📝 Notas: ' + d.notas); }
+  document.getElementById('importarResultadoBody').textContent = lineas.join('\n');
+  document.getElementById('importarResultado').style.display = 'block';
+}
+
+function descartarImportacion() {
+  importarDatosExtraidos = null;
+  document.getElementById('importarResultado').style.display = 'none';
+}
+
+// Aplica los datos extraídos al formulario principal
+function aplicarImportacionAlFormulario() {
+  const d = importarDatosExtraidos;
+  if (!d) return;
+
+  // Datos básicos
+  if (d.cliente) document.getElementById('cliente').value = d.cliente;
+  if (d.telefono) document.getElementById('telefono').value = d.telefono;
+  if (d.direccion) document.getElementById('direccion').value = d.direccion;
+  if (d.fecha) {
+    const fechaEl = document.getElementById('fecha');
+    if (fechaEl) fechaEl.value = d.fecha;
+  }
+  if (d.vendedor) {
+    const vSel = document.getElementById('vendedor');
+    const opt = Array.from(vSel.options).find(o => o.value.toLowerCase() === String(d.vendedor).toLowerCase());
+    if (opt) vSel.value = opt.value;
+  }
+
+  // Tipo envío
+  if (d.tipoEnvio === 'delivery' || d.tipoEnvio === 'retiro') {
+    seleccionarEnvio(d.tipoEnvio);
+    if (d.tipoEnvio === 'delivery') {
+      if (d.fechaEntrega) document.getElementById('fechaEntrega').value = d.fechaEntrega;
+      if (d.horario) {
+        const HORARIOS_PREDEF = ['11 a 14 hs', '13 a 17 hs', '16 a 20 hs', 'Todo el día'];
+        if (HORARIOS_PREDEF.indexOf(d.horario) !== -1) {
+          horarioSeleccionado = d.horario;
+          horarioPersonalizado = '';
+          const btn = document.querySelector('.horario-btn[data-horario="' + d.horario + '"]');
+          if (btn) btn.classList.add('selected');
+        } else {
+          activarHorarioPersonalizado();
+          const inp = document.getElementById('inputHorarioPersonalizado');
+          if (inp) { inp.value = d.horario; onInputHorarioPersonalizado(d.horario); }
+        }
+      }
+    }
+  }
+
+  // Items: matchear con catálogo cuando se pueda; si no, manual
+  if (d.items && Array.isArray(d.items)) {
+    d.items.forEach(it => {
+      const nombre = it.producto || '';
+      const tipo = it.tipo === 'unidad' ? 'unidad' : 'kg';
+      const cant = parseFloat(it.cantidad) || 0;
+      // Buscar match en catálogo (case-insensitive, parcial)
+      const prod = productos.find(p => p.nombre && nombre &&
+        normalizar(p.nombre).indexOf(normalizar(nombre)) !== -1 ||
+        normalizar(nombre).indexOf(normalizar(p.nombre)) !== -1);
+      if (prod && prod.precios && prod.precios[config.listaActiva] > 0) {
+        const precio = prod.precios[config.listaActiva];
+        carrito.push({
+          producto: prod.nombre,
+          tipo: prod.tipo,
+          pesoOCantidad: cant,
+          precio,
+          subtotal: cant * precio,
+          pendiente: (!cant || cant <= 0)
+        });
+      } else {
+        // Producto manual con el dato que vino
+        const precio = parseFloat(it.precio) || 0;
+        carrito.push({
+          producto: nombre || '(sin nombre)',
+          tipo,
+          pesoOCantidad: cant,
+          precio,
+          subtotal: cant * precio,
+          manual: true,
+          pendiente: (!cant || cant <= 0) || (!precio || precio <= 0)
+        });
+      }
+    });
+  }
+
+  renderCarrito();
+  actualizarTotales();
+
+  // Si el cliente coincide con uno existente, mostrar info
+  if (d.cliente) {
+    const exacto = clientes.find(c => normalizar(c.nombre) === normalizar(d.cliente));
+    if (exacto) {
+      clienteSeleccionado = exacto;
+      mostrarInfoCliente(exacto);
+      document.getElementById('clienteBadge').innerHTML = '<span class="badge-existing">✓ Existente</span>';
+    } else {
+      document.getElementById('clienteBadge').innerHTML = '<span class="badge-new">Nuevo</span>';
+    }
+  }
+
+  cerrarImportarPedido();
+  showToast('✓ Datos cargados — revisalos y completá lo que falte', false, 'success');
+  window.scrollTo(0, 0);
 }
 
 document.addEventListener('click', function(e) {
