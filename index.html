@@ -812,23 +812,25 @@ function renderApp() {
         <button class="envio-btn" data-envio="retiro" onclick="seleccionarEnvio('retiro')">🏪 Retiro</button>
         <button class="envio-btn" data-envio="delivery" onclick="seleccionarEnvio('delivery')">🚚 Delivery</button>
       </div>
-      <div class="delivery-fields" id="deliveryFields">
-        <div class="form-row-full" style="margin-bottom:12px;">
-          <label>Fecha de entrega</label>
-          <input type="date" id="fechaEntrega">
+    </div>
+
+    <div class="card">
+      <h2>📅 Fecha y Horario de Entrega</h2>
+      <div class="form-row-full" style="margin-bottom:12px;">
+        <label>Fecha de entrega</label>
+        <input type="date" id="fechaEntrega">
+        <div class="hint">Si la dejás vacía, se usa la fecha del pedido</div>
+      </div>
+      <div class="form-row-full">
+        <label>Horario</label>
+        <div class="horario-selector">
+          <button class="horario-btn" data-horario="11 a 14 hs" onclick="seleccionarHorario(this, '11 a 14 hs')">🕐 11 a 14 hs</button>
+          <button class="horario-btn" data-horario="16 a 20 hs" onclick="seleccionarHorario(this, '16 a 20 hs')">🕓 16 a 20 hs</button>
+          <button class="horario-btn" data-horario="Todo el día" onclick="seleccionarHorario(this, 'Todo el día')">☀️ Todo el día</button>
+          <button class="horario-btn" id="btnHorarioOtro" onclick="activarHorarioPersonalizado()">✏️ Agregar a mano</button>
         </div>
-        <div class="form-row-full">
-          <label>Rango horario</label>
-          <div class="horario-selector">
-            <button class="horario-btn" data-horario="11 a 14 hs" onclick="seleccionarHorario(this, '11 a 14 hs')">🕐 11 a 14 hs</button>
-            <button class="horario-btn" data-horario="13 a 17 hs" onclick="seleccionarHorario(this, '13 a 17 hs')">🕑 13 a 17 hs</button>
-            <button class="horario-btn" data-horario="16 a 20 hs" onclick="seleccionarHorario(this, '16 a 20 hs')">🕓 16 a 20 hs</button>
-            <button class="horario-btn" data-horario="Todo el día" onclick="seleccionarHorario(this, 'Todo el día')">☀️ Todo el día</button>
-            <button class="horario-btn" id="btnHorarioOtro" style="grid-column:1/-1;" onclick="activarHorarioPersonalizado()">✏️ Otro horario…</button>
-          </div>
-          <div id="horarioPersonalizadoBox" style="display:none; margin-top:8px;">
-            <input type="text" id="inputHorarioPersonalizado" placeholder="Ej: 9 a 11 hs · A las 18 en punto · etc." oninput="onInputHorarioPersonalizado(this.value)" style="font-size:14px;">
-          </div>
+        <div id="horarioPersonalizadoBox" style="display:none; margin-top:8px;">
+          <input type="text" id="inputHorarioPersonalizado" placeholder="Ej: 9 a 11 hs · A las 18 en punto · etc." oninput="onInputHorarioPersonalizado(this.value)" style="font-size:14px;">
         </div>
       </div>
     </div>
@@ -902,19 +904,7 @@ function seleccionarEnvio(tipo) {
   document.querySelectorAll('.envio-btn').forEach(b => b.classList.remove('selected'));
   const btn = document.querySelector('.envio-btn[data-envio="' + tipo + '"]');
   if (btn) btn.classList.add('selected');
-  const df = document.getElementById('deliveryFields');
-  if (df) {
-    if (tipo === 'delivery') { df.classList.add('active'); }
-    else {
-      df.classList.remove('active');
-      horarioSeleccionado = '';
-      horarioPersonalizado = '';
-      const box = document.getElementById('horarioPersonalizadoBox');
-      if (box) box.style.display = 'none';
-      const inp = document.getElementById('inputHorarioPersonalizado');
-      if (inp) inp.value = '';
-    }
-  }
+  // Fecha + horario ahora son SIEMPRE visibles (también para Retiro).
 }
 
 function seleccionarHorario(btn, horario) {
@@ -1411,13 +1401,10 @@ async function generarResumen() {
   if (!cliente) { showToast('Ingresá el nombre del cliente', true); return; }
   if (carrito.length === 0) { showToast('Agregá al menos un producto', true); return; }
 
-  // CAMBIO 3: validar campos de delivery
-  let fechaEntrega = '';
-  if (tipoEnvio === 'delivery') {
-    fechaEntrega = document.getElementById('fechaEntrega') ? document.getElementById('fechaEntrega').value : '';
-    if (!fechaEntrega) { showToast('Seleccioná la fecha de entrega', true); return; }
-    if (!horarioSeleccionado) { showToast('Seleccioná el rango horario', true); return; }
-  }
+  // Fecha de entrega y horario ahora son opcionales y comunes a Delivery + Retiro.
+  // Si no se setea fechaEntrega, se usa la fecha del pedido (default).
+  const fechaEntregaInput = document.getElementById('fechaEntrega') ? document.getElementById('fechaEntrega').value : '';
+  const fechaEntrega = fechaEntregaInput || fecha;
 
   const sub = carrito.reduce((s, i) => s + i.subtotal, 0);
   const dp = parseFloat(document.getElementById('descuento').value) || 0;
@@ -1818,7 +1805,7 @@ function abrirEdicionPedido(id) {
   window._logisticaAgregada = (p.logistica || 0) > 0;
   tipoEnvio = p.tipoEnvio || 'retiro';
   // El horario puede ser uno de los predefinidos o un texto libre
-  const HORARIOS_PREDEF = ['11 a 14 hs', '13 a 17 hs', '16 a 20 hs', 'Todo el día'];
+  const HORARIOS_PREDEF = ['11 a 14 hs', '16 a 20 hs', 'Todo el día'];
   if (p.horario && HORARIOS_PREDEF.indexOf(p.horario) === -1) {
     horarioPersonalizado = p.horario;
     horarioSeleccionado = p.horario;
@@ -1843,19 +1830,16 @@ function abrirEdicionPedido(id) {
   }
   if (p.descuentoPct) document.getElementById('descuento').value = p.descuentoPct;
 
-  // Aplicar tipo de envío + fecha entrega + horario
+  // Aplicar tipo de envío + fecha entrega + horario (siempre, no solo delivery)
   seleccionarEnvio(tipoEnvio);
-  if (tipoEnvio === 'delivery') {
-    if (p.fechaEntrega) document.getElementById('fechaEntrega').value = p.fechaEntrega;
-    if (horarioPersonalizado) {
-      // Horario libre
-      activarHorarioPersonalizado();
-      const inp = document.getElementById('inputHorarioPersonalizado');
-      if (inp) inp.value = horarioPersonalizado;
-    } else if (horarioSeleccionado) {
-      const btn = document.querySelector('.horario-btn[data-horario="' + horarioSeleccionado + '"]');
-      if (btn) btn.classList.add('selected');
-    }
+  if (p.fechaEntrega) document.getElementById('fechaEntrega').value = p.fechaEntrega;
+  if (horarioPersonalizado) {
+    activarHorarioPersonalizado();
+    const inp = document.getElementById('inputHorarioPersonalizado');
+    if (inp) inp.value = horarioPersonalizado;
+  } else if (horarioSeleccionado) {
+    const btn = document.querySelector('.horario-btn[data-horario="' + horarioSeleccionado + '"]');
+    if (btn) btn.classList.add('selected');
   }
 
   renderCarrito();
@@ -1880,12 +1864,8 @@ async function guardarEdicionPedido() {
   if (!cliente) { showToast('Ingresá el nombre del cliente', true); return; }
   if (carrito.length === 0) { showToast('Agregá al menos un producto', true); return; }
 
-  let fechaEntrega = '';
-  if (tipoEnvio === 'delivery') {
-    fechaEntrega = document.getElementById('fechaEntrega') ? document.getElementById('fechaEntrega').value : '';
-    if (!fechaEntrega) { showToast('Seleccioná la fecha de entrega', true); return; }
-    if (!horarioSeleccionado) { showToast('Seleccioná o escribí el rango horario', true); return; }
-  }
+  const fechaEntregaInput = document.getElementById('fechaEntrega') ? document.getElementById('fechaEntrega').value : '';
+  const fechaEntrega = fechaEntregaInput || fecha;
 
   const sub = carrito.reduce((s, i) => s + (i.subtotal || 0), 0);
   const dp = parseFloat(document.getElementById('descuento').value) || 0;
@@ -2057,7 +2037,6 @@ function showToast(msg, isErr, type) { const t = document.getElementById('toast'
 // Mapeo de horarios predefinidos → [horaInicio, horaFin]
 const HORARIOS_RANGOS = {
   '11 a 14 hs': [11, 14],
-  '13 a 17 hs': [13, 17],
   '16 a 20 hs': [16, 20]
 };
 
@@ -2087,14 +2066,14 @@ function parsearHorarioLibre(horario) {
 
 // Devuelve {start: Date, end: Date, allDay: bool} para un pedido.
 function calcularFechaHoraCalendar(p) {
-  const fechaIso = (p.tipoEnvio === 'delivery' && p.fechaEntrega) ? p.fechaEntrega : p.fecha;
+  const fechaIso = p.fechaEntrega || p.fecha;
   if (!fechaIso) return null;
   const [y, mo, d] = fechaIso.split('-').map(Number);
   // Construir como local (no UTC)
   const base = new Date(y, mo - 1, d);
 
-  // Si es delivery con horario conocido, intentar rango
-  if (p.tipoEnvio === 'delivery' && p.horario && p.horario !== 'Todo el día') {
+  // Si hay horario conocido (delivery o retiro), intentar rango
+  if (p.horario && p.horario !== 'Todo el día') {
     let rango = HORARIOS_RANGOS[p.horario];
     if (!rango) rango = parsearHorarioLibre(p.horario);
     if (rango) {
@@ -2120,8 +2099,8 @@ function formatDateCalendar(d, allDay) {
 
 // Texto multilínea de la ficha (template confirmado por Santi).
 function formatearFichaCalendar(p) {
-  const fechaStr = (p.tipoEnvio === 'delivery' && p.fechaEntrega) ? formatFecha(p.fechaEntrega) : formatFecha(p.fecha);
-  const horarioStr = (p.tipoEnvio === 'delivery' && p.horario) ? ' | ⏰ ' + p.horario : '';
+  const fechaStr = p.fechaEntrega ? formatFecha(p.fechaEntrega) : formatFecha(p.fecha);
+  const horarioStr = p.horario ? ' | ⏰ ' + p.horario : '';
   const dirStr = p.direccion ? ' | 📍 ' + p.direccion : '';
   const telStr = p.telefono ? ' | 📞 ' + p.telefono : '';
 
@@ -2394,7 +2373,7 @@ function aplicarImportacionAlFormulario() {
     if (d.tipoEnvio === 'delivery') {
       if (d.fechaEntrega) document.getElementById('fechaEntrega').value = d.fechaEntrega;
       if (d.horario) {
-        const HORARIOS_PREDEF = ['11 a 14 hs', '13 a 17 hs', '16 a 20 hs', 'Todo el día'];
+        const HORARIOS_PREDEF = ['11 a 14 hs', '16 a 20 hs', 'Todo el día'];
         if (HORARIOS_PREDEF.indexOf(d.horario) !== -1) {
           horarioSeleccionado = d.horario;
           horarioPersonalizado = '';
