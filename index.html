@@ -34,6 +34,13 @@
   window.dispatchEvent(new Event('firebase-ready'));
 </script>
 <style>
+@font-face {
+  font-family: 'Bignord';
+  src: url('assets/Bignord-Regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --navy: #1a2542;
@@ -64,8 +71,16 @@ body {
   text-align: center;
 }
 .header h1 { font-size: 22px; letter-spacing: 2px; font-weight: 700; }
-.header p { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+.header p { font-size: 13px; opacity: 0.8; margin-top: 4px; font-family: 'Bignord', Georgia, serif; letter-spacing: 3px; text-transform: uppercase; }
 .header { position: relative; }
+.header-logo {
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  display: block;
+  margin: 0 auto 8px;
+  box-shadow: 0 0 0 3px var(--cream);
+}
+.title-display { font-family: 'Bignord', Georgia, serif !important; letter-spacing: 2px !important; }
 .btn-home {
   position: absolute; top: 12px; right: 12px;
   background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3);
@@ -81,13 +96,15 @@ body {
   box-shadow: 0 2px 6px rgba(0,0,0,0.05);
 }
 .card h2 {
-  font-size: 15px;
+  font-family: 'Bignord', Georgia, serif;
+  font-size: 17px;
   color: var(--navy);
   margin-bottom: 14px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
   border-bottom: 2px solid var(--navy);
   padding-bottom: 8px;
+  font-weight: normal;
 }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .form-row-full { margin-bottom: 12px; }
@@ -260,8 +277,10 @@ input[readonly] { background: #f5f5f5; }
 .resumen-page .pago-box .title { font-weight: 700; text-align: center; margin-bottom: 6px; }
 .resumen-page .total-box { background: #f5f5f5; padding: 16px 24px; border-radius: 6px; text-align: right; min-width: 220px; }
 .resumen-page .resumen-row { display: flex; justify-content: space-between; gap: 40px; padding: 4px 0; font-size: 14px; }
-.resumen-page .total-label { font-size: 16px; font-weight: 700; color: #1a2542; }
-.resumen-page .total-value { font-size: 22px; font-weight: 800; color: #1a2542; }
+.resumen-page .total-label { font-family: 'Bignord', Georgia, serif; font-size: 16px; font-weight: normal; color: #1a2542; letter-spacing: 2px; }
+.resumen-page .total-value { font-family: 'Bignord', Georgia, serif; font-size: 26px; font-weight: normal; color: #1a2542; letter-spacing: 1px; }
+.resumen-page .section-title { font-family: 'Bignord', Georgia, serif; letter-spacing: 2px; text-transform: uppercase; font-weight: normal; }
+.totales-row.total-final span:first-child { font-family: 'Bignord', Georgia, serif; letter-spacing: 2px; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
 @media (max-width: 480px) {
   .form-row { grid-template-columns: 1fr; }
@@ -540,7 +559,7 @@ else { window.addEventListener('firebase-ready', () => { firebaseListo = true; i
 
 async function iniciarApp() {
   document.getElementById('app').innerHTML = `
-    <div class="header"><h1>🥩 THE BUTCHER</h1><p>Conectando...</p></div>
+    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Conectando...</p></div>
     <div class="setup-screen"><div style="text-align:center; padding:40px;"><div style="font-size:40px; margin-bottom:10px;">☁️</div><p>Cargando datos...</p></div></div>
   `;
   try {
@@ -565,7 +584,7 @@ async function iniciarApp() {
   } catch (err) {
     console.error('Error iniciando:', err);
     document.getElementById('app').innerHTML = `
-      <div class="header"><h1>🥩 THE BUTCHER</h1><p>Error</p></div>
+      <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Error</p></div>
       <div class="setup-screen"><p style="color:red;">❌ Error: ${err.message}</p>
       <button class="btn btn-primary" onclick="location.reload()" style="margin-top:20px;">Reintentar</button></div>
     `;
@@ -681,7 +700,7 @@ async function editarPedidoEnSheets(pedido, clienteOriginal, fechaOriginal) {
 /* ============ SETUP ============ */
 function renderSetup() {
   document.getElementById('app').innerHTML = `
-    <div class="header"><h1>🥩 THE BUTCHER</h1><p>Carga de Pedidos</p></div>
+    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Carga de Pedidos</p></div>
     <div class="setup-screen">
       <h2>👋 ¡Bienvenido!</h2>
       <p>Subí tu Excel con los precios de productos.</p>
@@ -766,7 +785,7 @@ function renderApp() {
   app.innerHTML = `
     <div class="header">
       <button class="btn-home" onclick="irAInicio()" title="Limpiar y volver a inicio">🧹 Limpiar</button>
-      <h1>🥩 THE BUTCHER</h1>
+      <img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo">
       <p>Carga de Pedidos</p>
       <div>${getSheetsStatus()}</div>
     </div>
@@ -1485,10 +1504,10 @@ function renderResumen(p) {
   const logisticaResumenHTML = (p.logistica && p.logistica > 0) ? `<div class="resumen-row"><span>🚚 Logística</span><span class="num" style="color:#3949ab;">$${formatNum(p.logistica)}</span></div>` : '';
   const ciHTML = (p.telefono||p.direccion) ? `<div style="font-size:12px;color:#666;margin-top:4px;">${p.telefono?'📞 '+escapeHtml(p.telefono):''}${p.telefono&&p.direccion?' · ':''}${p.direccion?'📍 '+escapeHtml(p.direccion):''}</div>` : '';
   document.getElementById('app').innerHTML = `
-    <div class="header"><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><h1>🥩 THE BUTCHER</h1><p>Resumen del Pedido</p></div>
+    <div class="header"><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Resumen del Pedido</p></div>
     <div class="resumen-page" id="resumenCaptura">
       <div class="top">
-        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Logo" class="logo-img" style="background:var(--navy);">
+        <img src="assets/butcher-logo.png" alt="The Butcher" class="logo-img">
         <div class="cliente-box"><div class="datos"><div><b>Cliente:</b> ${escapeHtml(p.cliente)}</div><div><b>Fecha:</b> ${fechaFmt}</div><div><b>Vendedor:</b> ${escapeHtml(p.vendedor||'')}</div></div>${ciHTML}</div>
       </div>
       ${entregaHTML}
@@ -1715,7 +1734,7 @@ function renderPedidos() {
   });
   const totalPC = pf.filter(p => (p.estado||'pendiente')!=='pagado').reduce((s, p) => s + (p.totalFinal-(p.montoParcial||0)), 0);
   document.getElementById('app').innerHTML = `
-    <div class="header"><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><h1>🥩 THE BUTCHER</h1><p>Seguimiento</p></div>
+    <div class="header"><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Seguimiento</p></div>
     <div class="card"><h2>🔍 Filtros</h2>
       <div class="form-row-full"><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
       <div class="form-row-full"><label>Buscar cliente</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre"></div>
