@@ -825,9 +825,10 @@ function renderApp() {
         <label>Horario</label>
         <div class="horario-selector">
           <button class="horario-btn" data-horario="11 a 14 hs" onclick="seleccionarHorario(this, '11 a 14 hs')">🕐 11 a 14 hs</button>
+          <button class="horario-btn" data-horario="13 a 17 hs" onclick="seleccionarHorario(this, '13 a 17 hs')">🕑 13 a 17 hs</button>
           <button class="horario-btn" data-horario="16 a 20 hs" onclick="seleccionarHorario(this, '16 a 20 hs')">🕓 16 a 20 hs</button>
           <button class="horario-btn" data-horario="Todo el día" onclick="seleccionarHorario(this, 'Todo el día')">☀️ Todo el día</button>
-          <button class="horario-btn" id="btnHorarioOtro" onclick="activarHorarioPersonalizado()">✏️ Agregar a mano</button>
+          <button class="horario-btn" id="btnHorarioOtro" style="grid-column:1/-1;" onclick="activarHorarioPersonalizado()">✏️ Agregar a mano</button>
         </div>
         <div id="horarioPersonalizadoBox" style="display:none; margin-top:8px;">
           <input type="text" id="inputHorarioPersonalizado" placeholder="Ej: 9 a 11 hs · A las 18 en punto · etc." oninput="onInputHorarioPersonalizado(this.value)" style="font-size:14px;">
@@ -1805,7 +1806,7 @@ function abrirEdicionPedido(id) {
   window._logisticaAgregada = (p.logistica || 0) > 0;
   tipoEnvio = p.tipoEnvio || 'retiro';
   // El horario puede ser uno de los predefinidos o un texto libre
-  const HORARIOS_PREDEF = ['11 a 14 hs', '16 a 20 hs', 'Todo el día'];
+  const HORARIOS_PREDEF = ['11 a 14 hs', '13 a 17 hs', '16 a 20 hs', 'Todo el día'];
   if (p.horario && HORARIOS_PREDEF.indexOf(p.horario) === -1) {
     horarioPersonalizado = p.horario;
     horarioSeleccionado = p.horario;
@@ -2037,6 +2038,7 @@ function showToast(msg, isErr, type) { const t = document.getElementById('toast'
 // Mapeo de horarios predefinidos → [horaInicio, horaFin]
 const HORARIOS_RANGOS = {
   '11 a 14 hs': [11, 14],
+  '13 a 17 hs': [13, 17],
   '16 a 20 hs': [16, 20]
 };
 
@@ -2373,7 +2375,7 @@ function aplicarImportacionAlFormulario() {
     if (d.tipoEnvio === 'delivery') {
       if (d.fechaEntrega) document.getElementById('fechaEntrega').value = d.fechaEntrega;
       if (d.horario) {
-        const HORARIOS_PREDEF = ['11 a 14 hs', '16 a 20 hs', 'Todo el día'];
+        const HORARIOS_PREDEF = ['11 a 14 hs', '13 a 17 hs', '16 a 20 hs', 'Todo el día'];
         if (HORARIOS_PREDEF.indexOf(d.horario) !== -1) {
           horarioSeleccionado = d.horario;
           horarioPersonalizado = '';
