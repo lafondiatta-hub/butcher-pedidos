@@ -43,8 +43,13 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --navy: #1a2542;
-  --navy-light: #2a3555;
+  /* Paleta oficial The Butcher (manual de marca) */
+  --navy: #1B2332;
+  --navy-light: #2a3650;
+  --meat-red: #A3453F;
+  --meat-red-dark: #8a3934;
+  --kraft: #B5987A;
+  --kraft-light: #d4bfa1;
   --cream: #f5f1ea;
   --gray-bg: #eaeaea;
   --gray-border: #d0d0d0;
@@ -55,7 +60,8 @@
   --radius: 10px;
 }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Avenir es la tipografía oficial; fallback a Helvetica Neue y system */
+  font-family: 'Avenir Next', 'Avenir', 'Helvetica Neue', Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: #f0f0f0;
   color: var(--text);
   padding: 16px;
@@ -145,6 +151,8 @@ input[readonly] { background: #f5f5f5; }
 .btn-secondary { background: #eaeaea; color: var(--navy); }
 .btn-add { background: var(--cream); color: var(--navy); border: 2px dashed var(--navy); margin-top: 8px; }
 .btn-add:hover { background: #ede6d8; }
+.btn-meat { background: var(--meat-red); color: white; }
+.btn-meat:hover { background: var(--meat-red-dark); }
 .btn-danger-small { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 18px; border: none; cursor: pointer; border-radius: 4px; }
 .btn-danger-small:hover { background: #ffebee; }
 .btn-edit-small { background: transparent; color: var(--navy); padding: 4px 8px; font-size: 16px; border: none; cursor: pointer; border-radius: 4px; }
@@ -880,7 +888,7 @@ function renderApp() {
       <div class="totales-row" id="descuentoRow" style="display:none;"><span>Descuento <span id="descuentoPct"></span></span><span id="descuentoMontoDisplay">-$0</span></div>
       <div class="totales-row total-final"><span>TOTAL</span><span id="totalDisplay">$0</span></div>
     </div>
-    <div style="margin-top:20px;"><button class="btn btn-primary" id="btnGenerar" onclick="generarResumen()" disabled>📄 Generar Resumen</button></div>
+    <div style="margin-top:20px;"><button class="btn btn-meat" id="btnGenerar" onclick="generarResumen()" disabled>📄 Generar Resumen</button></div>
     <div id="bannerEdicion" style="display:none; margin-top:12px; padding:12px; background:#fff3e0; border-left:4px solid #f57c00; border-radius:6px; font-size:13px; color:#e65100;">
       ✏️ Editando pedido existente. Al guardar se actualiza Firebase + Google Sheets.
       <button onclick="cancelarEdicionPedido()" style="margin-left:10px; background:none; border:1px solid #f57c00; color:#e65100; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Cancelar</button>
@@ -1717,7 +1725,7 @@ function renderDashboardStats() {
     if (esMes) cantMes++;
   });
   return `
-    <div style="background:#fff3e0;padding:12px;border-radius:8px;border-left:3px solid #f57c00;"><div style="font-size:11px;color:#666;text-transform:uppercase;">Por cobrar</div><div style="font-size:18px;font-weight:700;color:#e65100;">$${formatNum(porCobrar)}</div><div style="font-size:10px;color:#999;">${cantPend} pedido${cantPend!==1?'s':''}</div></div>
+    <div style="background:#fbeaea;padding:12px;border-radius:8px;border-left:3px solid var(--meat-red);"><div style="font-size:11px;color:#666;text-transform:uppercase;">Por cobrar</div><div style="font-size:18px;font-weight:700;color:var(--meat-red);">$${formatNum(porCobrar)}</div><div style="font-size:10px;color:#999;">${cantPend} pedido${cantPend!==1?'s':''}</div></div>
     <div style="background:#e8f5e9;padding:12px;border-radius:8px;border-left:3px solid #2e7d32;"><div style="font-size:11px;color:#666;text-transform:uppercase;">Cobrado este mes</div><div style="font-size:18px;font-weight:700;color:#1b5e20;">$${formatNum(cobMes)}</div><div style="font-size:10px;color:#999;">${cantMes} pedido${cantMes!==1?'s':''}</div></div>
   `;
 }
@@ -1738,7 +1746,7 @@ function renderPedidos() {
     <div class="card"><h2>🔍 Filtros</h2>
       <div class="form-row-full"><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
       <div class="form-row-full"><label>Buscar cliente</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre"></div>
-      <div style="background:#fff3e0;padding:10px;border-radius:6px;text-align:center;margin-top:10px;"><div style="font-size:12px;color:#666;">Por cobrar</div><div style="font-size:20px;font-weight:700;color:#e65100;">$${formatNum(totalPC)}</div></div>
+      <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-top:10px;border-left:3px solid var(--meat-red);"><div style="font-size:12px;color:#666;">Por cobrar</div><div style="font-size:20px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPC)}</div></div>
     </div>
     <div class="card"><h2>📋 Pedidos (${pf.length})</h2>${pf.length===0?'<div class="cart-empty">Sin resultados</div>':pf.map(p => renderPedidoCard(p)).join('')}</div>
     <button class="btn btn-add" onclick="renderApp()" style="margin-top:10px;">← Volver</button>
