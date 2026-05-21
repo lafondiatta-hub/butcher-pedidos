@@ -311,23 +311,59 @@ input[readonly] { background: #f5f5f5; }
 <div class="modal-overlay" id="modalAgregar">
   <div class="modal">
     <h3 id="modalAgregarTitulo">Agregar Producto</h3>
-    <div class="form-row-full">
-      <label>Producto</label>
-      <div class="producto-search-container">
-        <span class="producto-search-icon">🔍</span>
-        <input type="text" id="inputBuscarProducto" class="producto-search-input" placeholder="Escribí para buscar..." autocomplete="off" oninput="onProductoSearchInput()" onfocus="onProductoSearchInput()">
-        <div class="producto-suggestions" id="productoSuggestions"></div>
+
+    <!-- BÚSQUEDA EN CATÁLOGO -->
+    <div id="seccionBuscarCatalogo">
+      <div class="form-row-full">
+        <label>Producto</label>
+        <div class="producto-search-container">
+          <span class="producto-search-icon">🔍</span>
+          <input type="text" id="inputBuscarProducto" class="producto-search-input" placeholder="Escribí para buscar..." autocomplete="off" oninput="onProductoSearchInput()" onfocus="onProductoSearchInput()">
+          <div class="producto-suggestions" id="productoSuggestions"></div>
+        </div>
+        <div class="producto-selected-box" id="productoSelectedBox">
+          <div><span class="sel-name" id="selProdName"></span> <span class="sel-price" id="selProdPrice"></span></div>
+          <button class="sel-clear" onclick="limpiarProductoSeleccionado()">✕</button>
+        </div>
       </div>
-      <div class="producto-selected-box" id="productoSelectedBox">
-        <div><span class="sel-name" id="selProdName"></span> <span class="sel-price" id="selProdPrice"></span></div>
-        <button class="sel-clear" onclick="limpiarProductoSeleccionado()">✕</button>
+      <button type="button" class="btn btn-add" id="btnModoManual" onclick="activarModoManual()" style="margin-bottom:12px;">✍️ ¿No está en el catálogo? Agregar manualmente</button>
+    </div>
+
+    <!-- AGREGAR MANUAL (oculto por defecto) -->
+    <div id="seccionManual" style="display:none;">
+      <div style="background:#fff3e0; border-left:3px solid #f57c00; padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:12px; color:#e65100;">
+        ✍️ <b>Producto manual</b> — no se guarda en el catálogo, solo en este pedido.
+        <button type="button" onclick="volverAlBuscadorCatalogo()" style="margin-left:8px; background:none; border:1px solid #f57c00; color:#e65100; padding:2px 8px; border-radius:5px; cursor:pointer; font-weight:600;">← Volver</button>
+      </div>
+      <div class="form-row-full">
+        <label>Nombre del producto</label>
+        <input type="text" id="manualNombre" placeholder="Ej: Asado de tira" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Tipo</label>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <button type="button" class="tipo-pago-btn selected" id="btnTipoKg" onclick="seleccionarTipoManual('kg')">🥩 Por kg</button>
+            <button type="button" class="tipo-pago-btn" id="btnTipoUnidad" onclick="seleccionarTipoManual('unidad')">📦 Por unidad</button>
+          </div>
+          <input type="hidden" id="manualTipo" value="kg">
+        </div>
+        <div>
+          <label>Precio <span style="font-weight:400; text-transform:none; color:#999;">(opcional)</span></label>
+          <input type="number" id="manualPrecio" step="0.01" min="0" placeholder="Dejá vacío si no sabés">
+          <div class="hint">Si no lo sabés ahora, lo completás después editando</div>
+        </div>
       </div>
     </div>
+
+    <!-- CANTIDAD (común a ambos modos) -->
     <div class="form-row-full" id="labelCantidadBox" style="display:none;">
       <label id="labelCantidad">Peso (kg)</label>
       <input type="number" id="inputCantidad" step="0.001" min="0" placeholder="0">
       <div class="hint" id="hintPrecio"></div>
+      <div class="hint" style="margin-top:6px; color:#f57c00;">💡 Dejá en 0 o vacío si todavía no pesaste/contaste — queda como <b>borrador</b> y lo completás después</div>
     </div>
+
     <div class="row-2" style="margin-top: 16px;">
       <button class="btn btn-primary" id="btnConfirmarAgregar" onclick="confirmarAgregar()">Agregar</button>
       <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
@@ -362,6 +398,25 @@ input[readonly] { background: #f5f5f5; }
       <button class="btn btn-primary" onclick="guardarConfig()">Guardar</button>
       <button class="btn btn-secondary" onclick="cerrarConfig()">Cancelar</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL FICHA CALENDAR -->
+<div class="modal-overlay" id="modalFichaCalendar">
+  <div class="modal" style="max-width:560px;">
+    <h3>📅 Agendar en Google Calendar</h3>
+    <p style="font-size:13px; color:#666; margin-bottom:12px;">
+      Revisá la ficha. Al apretar <b>Abrir en Calendar</b> se abre el formulario de Google con todo cargado — confirmás vos y elegís el color <b>Grafito</b>.
+    </p>
+    <div style="background:#f5f5f5; border:1px solid #ddd; border-radius:8px; padding:14px; margin-bottom:14px;">
+      <div style="font-weight:700; color:#1a2542; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #ddd; font-size:14px;" id="fichaCalendarTitulo">PEDIDO BUTCHER - …</div>
+      <pre id="fichaCalendarBody" style="white-space:pre-wrap; font-family:inherit; font-size:13px; color:#222; margin:0; line-height:1.5;"></pre>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <button class="btn btn-primary" id="btnAbrirCalendar" onclick="ejecutarAgendarCalendar()">📅 Abrir en Calendar</button>
+      <button class="btn btn-secondary" onclick="copiarFichaCalendar()">📋 Copiar texto</button>
+    </div>
+    <button class="btn btn-secondary" onclick="cerrarFichaCalendar()" style="margin-top:8px;">Cerrar</button>
   </div>
 </div>
 
@@ -419,6 +474,13 @@ let editandoItemIdx = -1;
 // CAMBIO 3: estado de envío
 let tipoEnvio = 'retiro'; // 'retiro' | 'delivery'
 let horarioSeleccionado = '';
+// EDICIÓN DE PEDIDO (Fase 1A)
+let editandoPedidoId = null;
+let pedidoOriginalSheets = null; // { cliente, fecha } ANTES de editar — para ubicar la fila en Sheets
+// HORARIO PERSONALIZADO (Fase 1B)
+let horarioPersonalizado = '';
+// MODO MANUAL DEL MODAL AGREGAR (Fase 1B)
+let agregandoManual = false;
 
 if (window.firebaseReady) { firebaseListo = true; iniciarApp(); }
 else { window.addEventListener('firebase-ready', () => { firebaseListo = true; iniciarApp(); }); }
@@ -539,6 +601,30 @@ function getSheetsStatus() {
   return '<span class="sync-indicator sync-ok">📋 Google Sheets: Conectado</span>';
 }
 
+/* ============================================================
+ * EDICIÓN DE PEDIDO (Fase 1A): POST a Apps Script
+ * Envía 'editarPedido' con clienteOriginal + fechaOriginal para
+ * ubicar la fila exacta en Sheets y reescribirla con los datos nuevos.
+ * ============================================================ */
+async function editarPedidoEnSheets(pedido, clienteOriginal, fechaOriginal) {
+  const url = config && config.sheetsUrl;
+  if (!url) return { success: false, error: 'Sin URL de Sheets' };
+  const payload = JSON.stringify({
+    action: 'editarPedido',
+    clienteOriginal,
+    fechaOriginal,
+    pedido: { ...pedido, vendedor: pedido.vendedor || config.vendedor || 'App' }
+  });
+  try {
+    const resp = await fetch(url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload });
+    const text = await resp.text();
+    try { return JSON.parse(text); } catch(e) { return { success: true }; }
+  } catch(err) {
+    try { await fetch(url, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); return { success: true, message: 'Enviado (modo no-cors)' }; }
+    catch(err2) { return { success: false, error: err2.message }; }
+  }
+}
+
 /* ============ SETUP ============ */
 function renderSetup() {
   document.getElementById('app').innerHTML = `
@@ -615,9 +701,12 @@ function onExcelUpload(event) {
 
 /* ============ PANTALLA PRINCIPAL ============ */
 function renderApp() {
-  // Reset estado de envío al renderizar
-  tipoEnvio = 'retiro';
-  horarioSeleccionado = '';
+  // Reset estado de envío al renderizar (NO si estamos editando un pedido)
+  if (!editandoPedidoId) {
+    tipoEnvio = 'retiro';
+    horarioSeleccionado = '';
+    horarioPersonalizado = '';
+  }
 
   const app = document.getElementById('app');
   app.setAttribute('data-vista', 'main');
@@ -680,6 +769,10 @@ function renderApp() {
             <button class="horario-btn" data-horario="13 a 17 hs" onclick="seleccionarHorario(this, '13 a 17 hs')">🕑 13 a 17 hs</button>
             <button class="horario-btn" data-horario="16 a 20 hs" onclick="seleccionarHorario(this, '16 a 20 hs')">🕓 16 a 20 hs</button>
             <button class="horario-btn" data-horario="Todo el día" onclick="seleccionarHorario(this, 'Todo el día')">☀️ Todo el día</button>
+            <button class="horario-btn" id="btnHorarioOtro" style="grid-column:1/-1;" onclick="activarHorarioPersonalizado()">✏️ Otro horario…</button>
+          </div>
+          <div id="horarioPersonalizadoBox" style="display:none; margin-top:8px;">
+            <input type="text" id="inputHorarioPersonalizado" placeholder="Ej: 9 a 11 hs · A las 18 en punto · etc." oninput="onInputHorarioPersonalizado(this.value)" style="font-size:14px;">
           </div>
         </div>
       </div>
@@ -711,6 +804,10 @@ function renderApp() {
       <div class="totales-row total-final"><span>TOTAL</span><span id="totalDisplay">$0</span></div>
     </div>
     <div style="margin-top:20px;"><button class="btn btn-primary" id="btnGenerar" onclick="generarResumen()" disabled>📄 Generar Resumen</button></div>
+    <div id="bannerEdicion" style="display:none; margin-top:12px; padding:12px; background:#fff3e0; border-left:4px solid #f57c00; border-radius:6px; font-size:13px; color:#e65100;">
+      ✏️ Editando pedido existente. Al guardar se actualiza Firebase + Google Sheets.
+      <button onclick="cancelarEdicionPedido()" style="margin-left:10px; background:none; border:1px solid #f57c00; color:#e65100; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Cancelar</button>
+    </div>
     <div class="card" style="margin-top:20px;">
       <h2>💰 Seguimiento de Pagos</h2>
       <div id="dashboardStats" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">${renderDashboardStats()}</div>
@@ -730,8 +827,16 @@ function renderApp() {
   document.getElementById('listaPrecios').value = config.listaActiva;
   if (config.vendedor) document.getElementById('vendedor').value = config.vendedor;
   actualizarBtnLogistica();
-  // Inicializar selector de envío en "Retiro"
-  seleccionarEnvio('retiro');
+  // Inicializar selector de envío en "Retiro" (solo si no estamos editando)
+  if (!editandoPedidoId) seleccionarEnvio('retiro');
+
+  // MODO EDICIÓN: cambiar botón principal y mostrar banner
+  if (editandoPedidoId) {
+    const btn = document.getElementById('btnGenerar');
+    if (btn) { btn.textContent = '💾 Guardar cambios'; btn.disabled = false; }
+    const banner = document.getElementById('bannerEdicion');
+    if (banner) banner.style.display = 'block';
+  }
 }
 
 /* ============================================================
@@ -745,14 +850,47 @@ function seleccionarEnvio(tipo) {
   const df = document.getElementById('deliveryFields');
   if (df) {
     if (tipo === 'delivery') { df.classList.add('active'); }
-    else { df.classList.remove('active'); horarioSeleccionado = ''; }
+    else {
+      df.classList.remove('active');
+      horarioSeleccionado = '';
+      horarioPersonalizado = '';
+      const box = document.getElementById('horarioPersonalizadoBox');
+      if (box) box.style.display = 'none';
+      const inp = document.getElementById('inputHorarioPersonalizado');
+      if (inp) inp.value = '';
+    }
   }
 }
 
 function seleccionarHorario(btn, horario) {
   horarioSeleccionado = horario;
+  horarioPersonalizado = '';
   document.querySelectorAll('.horario-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
+  // Ocultar input personalizado
+  const box = document.getElementById('horarioPersonalizadoBox');
+  if (box) box.style.display = 'none';
+}
+
+function activarHorarioPersonalizado() {
+  document.querySelectorAll('.horario-btn').forEach(b => b.classList.remove('selected'));
+  const btnOtro = document.getElementById('btnHorarioOtro');
+  if (btnOtro) btnOtro.classList.add('selected');
+  const box = document.getElementById('horarioPersonalizadoBox');
+  if (box) {
+    box.style.display = 'block';
+    const inp = document.getElementById('inputHorarioPersonalizado');
+    if (inp) {
+      // Si ya había un horario personalizado, lo pre-cargo
+      if (horarioPersonalizado) inp.value = horarioPersonalizado;
+      setTimeout(() => inp.focus(), 50);
+    }
+  }
+}
+
+function onInputHorarioPersonalizado(val) {
+  horarioPersonalizado = (val || '').trim();
+  horarioSeleccionado = horarioPersonalizado;
 }
 
 /* ============ LOGÍSTICA ============ */
@@ -840,6 +978,7 @@ function ocultarInfoCliente() { const b = document.getElementById('clienteInfoBo
  * ============================================================ */
 function abrirModalAgregar() {
   editandoItemIdx = -1;
+  agregandoManual = false;
   document.getElementById('modalAgregarTitulo').textContent = 'Agregar Producto';
   document.getElementById('btnConfirmarAgregar').textContent = 'Agregar';
   productoSeleccionadoIdx = null;
@@ -850,45 +989,113 @@ function abrirModalAgregar() {
   document.getElementById('productoSuggestions').classList.remove('active');
   document.getElementById('inputBuscarProducto').style.display = '';
   document.querySelector('.producto-search-icon').style.display = '';
+  // Reset modo manual
+  document.getElementById('seccionBuscarCatalogo').style.display = '';
+  document.getElementById('seccionManual').style.display = 'none';
+  document.getElementById('manualNombre').value = '';
+  document.getElementById('manualPrecio').value = '';
+  document.getElementById('manualTipo').value = 'kg';
+  document.getElementById('btnTipoKg').classList.add('selected');
+  document.getElementById('btnTipoUnidad').classList.remove('selected');
   document.getElementById('modalAgregar').classList.add('active');
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 100);
 }
 
-// CAMBIO 2: Abrir modal en modo edición para un ítem ya cargado
+/* ============ MODO MANUAL DEL MODAL (Fase 1B) ============ */
+function activarModoManual() {
+  agregandoManual = true;
+  productoSeleccionadoIdx = null;
+  document.getElementById('seccionBuscarCatalogo').style.display = 'none';
+  document.getElementById('seccionManual').style.display = 'block';
+  document.getElementById('labelCantidadBox').style.display = 'block';
+  // Setear label de cantidad según tipo actual
+  aplicarTipoEnLabelCantidad(document.getElementById('manualTipo').value);
+  document.getElementById('inputCantidad').value = '';
+  setTimeout(() => document.getElementById('manualNombre').focus(), 50);
+}
+
+function volverAlBuscadorCatalogo() {
+  agregandoManual = false;
+  document.getElementById('seccionBuscarCatalogo').style.display = '';
+  document.getElementById('seccionManual').style.display = 'none';
+  document.getElementById('labelCantidadBox').style.display = 'none';
+  document.getElementById('inputBuscarProducto').value = '';
+  setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 50);
+}
+
+function seleccionarTipoManual(tipo) {
+  document.getElementById('manualTipo').value = tipo;
+  document.getElementById('btnTipoKg').classList.toggle('selected', tipo === 'kg');
+  document.getElementById('btnTipoUnidad').classList.toggle('selected', tipo === 'unidad');
+  aplicarTipoEnLabelCantidad(tipo);
+}
+
+function aplicarTipoEnLabelCantidad(tipo) {
+  const inp = document.getElementById('inputCantidad');
+  if (tipo === 'kg') {
+    document.getElementById('labelCantidad').textContent = 'Peso (kg) — opcional';
+    inp.step = '0.001';
+    inp.placeholder = 'Ej: 1.250 (o dejá vacío)';
+    document.getElementById('hintPrecio').textContent = '';
+  } else {
+    document.getElementById('labelCantidad').textContent = 'Cantidad (unidades) — opcional';
+    inp.step = '1';
+    inp.placeholder = 'Ej: 2 (o dejá vacío)';
+    document.getElementById('hintPrecio').textContent = '';
+  }
+}
+
+// Abrir modal en modo edición para un ítem del carrito.
+// Si el item es manual o no tiene precio, abrimos modo manual para poder corregir nombre/precio.
 function abrirModalEditar(idx) {
   editandoItemIdx = idx;
   const item = carrito[idx];
   document.getElementById('modalAgregarTitulo').textContent = 'Editar Producto';
   document.getElementById('btnConfirmarAgregar').textContent = 'Guardar cambios';
 
-  // Buscar el producto en el catálogo
-  const prodIdx = productos.findIndex(p => p.nombre === item.producto);
-  productoSeleccionadoIdx = prodIdx !== -1 ? prodIdx : null;
+  const esManual = !!item.manual;
+  const sinPrecio = !item.precio || item.precio <= 0;
 
-  // Ocultar buscador y mostrar el nombre del producto
-  document.getElementById('inputBuscarProducto').style.display = 'none';
-  document.querySelector('.producto-search-icon').style.display = 'none';
-  document.getElementById('productoSuggestions').classList.remove('active');
+  if (esManual || sinPrecio) {
+    // Modo manual: nombre + tipo + precio editables
+    agregandoManual = true;
+    document.getElementById('seccionBuscarCatalogo').style.display = 'none';
+    document.getElementById('seccionManual').style.display = 'block';
+    document.getElementById('manualNombre').value = item.producto || '';
+    document.getElementById('manualPrecio').value = item.precio > 0 ? item.precio : '';
+    seleccionarTipoManual(item.tipo || 'kg');
+  } else {
+    // Modo catálogo: solo cantidad editable
+    agregandoManual = false;
+    const prodIdx = productos.findIndex(p => p.nombre === item.producto);
+    productoSeleccionadoIdx = prodIdx !== -1 ? prodIdx : null;
+    document.getElementById('seccionBuscarCatalogo').style.display = '';
+    document.getElementById('seccionManual').style.display = 'none';
+    document.getElementById('inputBuscarProducto').style.display = 'none';
+    document.querySelector('.producto-search-icon').style.display = 'none';
+    document.getElementById('productoSuggestions').classList.remove('active');
+    const btnManual = document.getElementById('btnModoManual');
+    if (btnManual) btnManual.style.display = 'none';
+    const box = document.getElementById('productoSelectedBox');
+    document.getElementById('selProdName').textContent = item.producto;
+    document.getElementById('selProdPrice').textContent = '$' + formatNum(item.precio) + '/' + item.tipo;
+    box.classList.add('active');
+  }
 
-  const box = document.getElementById('productoSelectedBox');
-  document.getElementById('selProdName').textContent = item.producto;
-  document.getElementById('selProdPrice').textContent = '$' + formatNum(item.precio) + '/' + item.tipo;
-  box.classList.add('active');
-
-  // Mostrar cantidad actual
+  // Cantidad (común a ambos)
   document.getElementById('labelCantidadBox').style.display = 'block';
   if (item.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
     document.getElementById('inputCantidad').step = '0.001';
     document.getElementById('inputCantidad').placeholder = 'Ej: 1.250';
-    document.getElementById('hintPrecio').textContent = '💡 $' + formatNum(item.precio) + '/kg';
+    document.getElementById('hintPrecio').textContent = item.precio > 0 ? '💡 $' + formatNum(item.precio) + '/kg' : '';
   } else {
     document.getElementById('labelCantidad').textContent = 'Cantidad (unidades)';
     document.getElementById('inputCantidad').step = '1';
     document.getElementById('inputCantidad').placeholder = 'Ej: 2';
-    document.getElementById('hintPrecio').textContent = '💡 $' + formatNum(item.precio) + '/u';
+    document.getElementById('hintPrecio').textContent = item.precio > 0 ? '💡 $' + formatNum(item.precio) + '/u' : '';
   }
-  document.getElementById('inputCantidad').value = item.pesoOCantidad;
+  document.getElementById('inputCantidad').value = item.pesoOCantidad > 0 ? item.pesoOCantidad : '';
 
   document.getElementById('modalAgregar').classList.add('active');
   setTimeout(() => document.getElementById('inputCantidad').focus(), 100);
@@ -897,6 +1104,10 @@ function abrirModalEditar(idx) {
 function cerrarModal() {
   document.getElementById('modalAgregar').classList.remove('active');
   editandoItemIdx = -1;
+  agregandoManual = false;
+  // Restaurar visibilidad del botón "Agregar manualmente"
+  const btnManual = document.getElementById('btnModoManual');
+  if (btnManual) btnManual.style.display = '';
 }
 
 function onProductoSearchInput() {
@@ -979,16 +1190,30 @@ function limpiarProductoSeleccionado() {
   document.getElementById('inputBuscarProducto').focus();
 }
 
-// CAMBIO 2: confirmarAgregar ahora maneja tanto agregar como editar
+// confirmarAgregar — Fase 1B+1C: maneja agregar/editar + modo manual + cantidad/precio 0 (borrador)
 function confirmarAgregar() {
-  const cant = parseFloat(document.getElementById('inputCantidad').value);
-  if (!cant || cant <= 0) { showToast('Ingresá la cantidad', true); return; }
+  const cantRaw = document.getElementById('inputCantidad').value;
+  // Cantidad puede ser vacío o 0 → modo borrador
+  const cant = (cantRaw === '' || cantRaw === null) ? 0 : (parseFloat(cantRaw) || 0);
 
+  // === MODO EDICIÓN DE ÍTEM EXISTENTE ===
   if (editandoItemIdx >= 0) {
-    // Modo edición: actualizar el ítem existente
     const item = carrito[editandoItemIdx];
+    // Si estamos editando en modo manual, leer nombre/tipo/precio del form manual
+    if (agregandoManual) {
+      const nombre = document.getElementById('manualNombre').value.trim();
+      const tipo = document.getElementById('manualTipo').value || 'kg';
+      const precioRaw = document.getElementById('manualPrecio').value;
+      const precio = (precioRaw === '' || precioRaw === null) ? 0 : (parseFloat(precioRaw) || 0);
+      if (!nombre) { showToast('Poné un nombre al producto', true); return; }
+      item.producto = nombre;
+      item.tipo = tipo;
+      item.precio = precio;
+      item.manual = true;
+    }
     item.pesoOCantidad = cant;
-    item.subtotal = cant * item.precio;
+    item.subtotal = cant * (item.precio || 0);
+    item.pendiente = (!cant || cant <= 0) || (!item.precio || item.precio <= 0);
     renderCarrito();
     actualizarTotales();
     cerrarModal();
@@ -996,35 +1221,82 @@ function confirmarAgregar() {
     return;
   }
 
-  // Modo agregar: comportamiento original
-  if (productoSeleccionadoIdx === null) { showToast('Seleccioná un producto', true); return; }
+  // === MODO AGREGAR MANUAL ===
+  if (agregandoManual) {
+    const nombre = document.getElementById('manualNombre').value.trim();
+    const tipo = document.getElementById('manualTipo').value || 'kg';
+    const precioRaw = document.getElementById('manualPrecio').value;
+    const precio = (precioRaw === '' || precioRaw === null) ? 0 : (parseFloat(precioRaw) || 0);
+    if (!nombre) { showToast('Poné un nombre al producto', true); return; }
+    const pendiente = (!cant || cant <= 0) || (!precio || precio <= 0);
+    carrito.push({
+      producto: nombre,
+      tipo,
+      pesoOCantidad: cant,
+      precio,
+      subtotal: cant * precio,
+      manual: true,
+      pendiente
+    });
+    renderCarrito(); actualizarTotales(); cerrarModal();
+    showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
+    return;
+  }
+
+  // === MODO AGREGAR DESDE CATÁLOGO ===
+  if (productoSeleccionadoIdx === null) { showToast('Seleccioná un producto o agregalo manualmente', true); return; }
   const p = productos[productoSeleccionadoIdx], precio = p.precios[config.listaActiva];
-  carrito.push({ producto: p.nombre, tipo: p.tipo, pesoOCantidad: cant, precio, subtotal: cant * precio });
-  renderCarrito(); actualizarTotales(); cerrarModal(); showToast('Producto agregado ✓');
+  const pendiente = (!cant || cant <= 0);
+  carrito.push({
+    producto: p.nombre,
+    tipo: p.tipo,
+    pesoOCantidad: cant,
+    precio,
+    subtotal: cant * precio,
+    pendiente
+  });
+  renderCarrito(); actualizarTotales(); cerrarModal();
+  showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
 }
 
 function eliminarItem(idx) { carrito.splice(idx, 1); renderCarrito(); actualizarTotales(); }
 
-// CAMBIO 2: renderCarrito ahora incluye botón de editar en cada ítem
+// renderCarrito — incluye botón editar + soporta items "borrador" (sin peso o sin precio)
 function renderCarrito() {
   const c = document.getElementById('cartList');
   if (carrito.length === 0 && !window._logisticaAgregada) {
     c.innerHTML = '<div class="cart-empty">Todavía no agregaste productos</div>';
     return;
   }
-  let html = carrito.map((item, idx) => `
-    <div class="cart-item">
-      <div class="cart-item-info">
-        <div class="cart-item-name">${escapeHtml(item.producto)}</div>
-        <div class="cart-item-detail">${item.tipo==='kg' ? item.pesoOCantidad.toFixed(3)+' kg' : item.pesoOCantidad+' u'} × $${formatNum(item.precio)}</div>
+  let html = carrito.map((item, idx) => {
+    const sinCant = !item.pesoOCantidad || item.pesoOCantidad <= 0;
+    const sinPrecio = !item.precio || item.precio <= 0;
+    const esBorrador = sinCant || sinPrecio;
+    const cantTxt = sinCant
+      ? '<span style="color:#e65100; font-weight:600;">⏳ Pendiente de ' + (item.tipo === 'kg' ? 'pesar' : 'contar') + '</span>'
+      : (item.tipo === 'kg' ? item.pesoOCantidad.toFixed(3) + ' kg' : item.pesoOCantidad + ' u');
+    const precioTxt = sinPrecio
+      ? '<span style="color:#e65100;">Precio a definir</span>'
+      : '× $' + formatNum(item.precio);
+    const subtotalTxt = esBorrador
+      ? '<span style="color:#e65100; font-size:12px; font-weight:600;">📝 BORRADOR</span>'
+      : '$' + formatNum(item.subtotal);
+    const manualTag = item.manual ? '<span style="background:#fff3e0; color:#e65100; font-size:10px; padding:1px 6px; border-radius:8px; margin-left:6px;">✍️ Manual</span>' : '';
+    const borderStyle = esBorrador ? 'border-left:3px solid #f57c00;' : '';
+    return `
+      <div class="cart-item" style="${borderStyle}">
+        <div class="cart-item-info">
+          <div class="cart-item-name">${escapeHtml(item.producto)}${manualTag}</div>
+          <div class="cart-item-detail">${cantTxt} ${precioTxt}</div>
+        </div>
+        <div class="cart-item-price">${subtotalTxt}</div>
+        <div class="cart-item-actions">
+          <button class="btn-edit-small" onclick="abrirModalEditar(${idx})" title="Editar">✏️</button>
+          <button class="btn-danger-small" onclick="eliminarItem(${idx})">✕</button>
+        </div>
       </div>
-      <div class="cart-item-price">$${formatNum(item.subtotal)}</div>
-      <div class="cart-item-actions">
-        <button class="btn-edit-small" onclick="abrirModalEditar(${idx})" title="Editar cantidad">✏️</button>
-        <button class="btn-danger-small" onclick="eliminarItem(${idx})">✕</button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   if (window._logisticaAgregada) {
     html += `
@@ -1070,6 +1342,9 @@ function actualizarTotales() {
 
 /* ============ GENERAR RESUMEN ============ */
 async function generarResumen() {
+  // EDICIÓN DE PEDIDO: si hay edición en curso, derivar a guardarEdicionPedido()
+  if (editandoPedidoId) { return guardarEdicionPedido(); }
+
   const cliente = document.getElementById('cliente').value.trim();
   const telefono = document.getElementById('telefono').value.trim();
   const direccion = document.getElementById('direccion').value.trim();
@@ -1148,7 +1423,17 @@ function renderResumen(p) {
     : `<div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:10px 12px;border-radius:6px;margin-bottom:12px;font-size:13px;">
         🏪 <b>Retiro en local</b>
        </div>`;
-  const itemsRows = p.items.map(i => `<tr><td>${escapeHtml(i.producto)}</td><td class="num">${i.tipo==='kg'?i.pesoOCantidad.toFixed(3):'-'}</td><td class="num">${i.tipo==='unidad'?i.pesoOCantidad:'-'}</td><td class="num">$${formatNum(i.precio)}</td><td class="num bold">$${formatNum(i.subtotal)}</td></tr>`).join('');
+  const itemsRows = p.items.map(i => {
+    const sinCant = !i.pesoOCantidad || i.pesoOCantidad <= 0;
+    const sinPrecio = !i.precio || i.precio <= 0;
+    const kgCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3) : '-');
+    const uCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='unidad' ? i.pesoOCantidad : '-');
+    const precioCell = sinPrecio ? '<span style="color:#e65100;">A definir</span>' : '$' + formatNum(i.precio);
+    const subCell = (sinCant || sinPrecio) ? '<span style="color:#e65100; font-weight:700;">📝</span>' : '$' + formatNum(i.subtotal);
+    return `<tr><td>${escapeHtml(i.producto)}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
+  }).join('');
+  const tieneBorrador = pedidoEsBorrador(p);
+  const banderaBorrador = tieneBorrador ? `<div style="background:#fff3e0; border-left:4px solid #f57c00; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#e65100; font-weight:600;">📝 BORRADOR — hay items sin pesar o sin precio. El total final se confirma cuando completes los datos.</div>` : '';
   const logisticaRow = (p.logistica && p.logistica > 0)
     ? `<tr style="background:#f0f4ff;"><td><b>🚚 Logística</b></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num bold" style="color:#3949ab;">$${formatNum(p.logistica)}</td></tr>`
     : '';
@@ -1163,6 +1448,7 @@ function renderResumen(p) {
         <div class="cliente-box"><div class="datos"><div><b>Cliente:</b> ${escapeHtml(p.cliente)}</div><div><b>Fecha:</b> ${fechaFmt}</div><div><b>Vendedor:</b> ${escapeHtml(p.vendedor||'')}</div></div>${ciHTML}</div>
       </div>
       ${entregaHTML}
+      ${banderaBorrador}
       <div class="section-title">💬 Detalle del Pedido</div>
       <table><thead><tr><th>Producto</th><th class="num">Kg</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>${itemsRows}${logisticaRow}</tbody></table>
       <div class="bottom">
@@ -1179,6 +1465,7 @@ function renderResumen(p) {
       <button class="btn btn-primary" onclick="descargarImagen()">📸 Descargar imagen</button>
       <button class="btn btn-success" onclick="compartirWhatsApp()">💬 WhatsApp</button>
     </div>
+    <button class="btn" onclick="agendarEnCalendarDesdeResumen()" style="margin-top:10px; background:#37474f; color:white;">📅 Agendar en Google Calendar</button>
     <button class="btn btn-add" onclick="volverAPedidos()" style="margin-top:10px;">➕ Cargar nuevo pedido</button>
   `;
   window.scrollTo(0, 0);
@@ -1189,6 +1476,10 @@ function volverAPedidos() {
   logisticaMonto = 0;
   window._logisticaAgregada = false;
   clienteSeleccionado = null;
+  // Limpiar estado de edición
+  editandoPedidoId = null;
+  pedidoOriginalSheets = null;
+  horarioPersonalizado = '';
   renderApp();
 }
 
@@ -1213,7 +1504,17 @@ function compartirWhatsApp() {
     msg += `*Entrega:* 🏪 Retiro en local\n`;
   }
   msg += `\n*Detalle:*\n`;
-  p.items.forEach(i => { const qty = i.tipo==='kg'?i.pesoOCantidad.toFixed(3)+' kg':i.pesoOCantidad+' u'; msg += `• ${i.producto} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`; });
+  p.items.forEach(i => {
+    const sinCant = !i.pesoOCantidad || i.pesoOCantidad <= 0;
+    const sinPrecio = !i.precio || i.precio <= 0;
+    const qty = sinCant ? '⏳ pendiente' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3)+' kg' : i.pesoOCantidad+' u');
+    if (sinCant || sinPrecio) {
+      msg += `• ${i.producto} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
+    } else {
+      msg += `• ${i.producto} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
+    }
+  });
+  if (pedidoEsBorrador(p)) msg += `\n📝 *Pedido en BORRADOR* — total final por confirmar.\n`;
   if (p.logistica && p.logistica > 0) msg += `• 🚚 Logística = *$${formatNum(p.logistica)}*\n`;
   msg += `\n*Subtotal:* $${formatNum(p.subtotalPedido)}\n`;
   if (p.logistica && p.logistica > 0) msg += `*Logística:* $${formatNum(p.logistica)}\n`;
@@ -1368,11 +1669,17 @@ function renderPedidos() {
   window.scrollTo(0, 0);
 }
 
+function pedidoEsBorrador(p) {
+  if (!p || !p.items || !p.items.length) return false;
+  return p.items.some(it => !it.pesoOCantidad || it.pesoOCantidad <= 0 || !it.precio || it.precio <= 0 || it.pendiente);
+}
+
 function renderPedidoCard(p) {
   const est = p.estado || 'pendiente';
   const cols = { pendiente: {bg:'#fff3e0',border:'#f57c00',chipBg:'#f57c00',label:'⏳ PENDIENTE'}, parcial: {bg:'#fff9c4',border:'#f9a825',chipBg:'#f9a825',label:'💵 PARCIAL'}, pagado: {bg:'#e8f5e9',border:'#2e7d32',chipBg:'#2e7d32',label:'✅ PAGADO'} };
   const c = cols[est] || cols.pendiente;
   const logTag = (p.logistica && p.logistica > 0) ? `<span style="font-size:10px;color:#5c6bc0;margin-left:4px;">🚚 +$${formatNum(p.logistica)}</span>` : '';
+  const borradorTag = pedidoEsBorrador(p) ? `<span style="background:#fff3e0; color:#e65100; font-size:10px; font-weight:700; padding:3px 8px; border-radius:10px; border:1px solid #f57c00;">📝 BORRADOR</span>` : '';
   // CAMBIO 3: mostrar tipo de envío y fecha/horario en la card
   const envioTag = p.tipoEnvio === 'delivery'
     ? `<div style="font-size:11px;color:#1565c0;margin-top:3px;">🚚 Delivery · ${formatFecha(p.fechaEntrega)} · ⏰ ${p.horario||''}</div>`
@@ -1381,15 +1688,16 @@ function renderPedidoCard(p) {
     : '';
   return `<div style="background:${c.bg};border-left:4px solid ${c.border};padding:12px;border-radius:8px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
-      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${logTag}</div>
+      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${borradorTag}${logTag}</div>
       <div style="font-size:11px;color:#666;margin-top:4px;">${formatFecha(p.fecha)} · ${p.vendedor||''} · ${p.items.length} ítem${p.items.length!==1?'s':''}</div>
       ${envioTag}
       </div>
       <div style="font-weight:700;font-size:16px;color:var(--navy);">$${formatNum(p.totalFinal)}</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-top:8px;">
       ${est!=='pagado'?`<button class="btn-chip btn-chip-green" onclick="marcarPagado('${p._id}')">💰 Cobrar</button>`:`<button class="btn-chip" onclick="marcarPendiente('${p._id}')">↩️ Revertir</button>`}
       <button class="btn-chip" onclick="verDetallePedido('${p._id}')">👁️ Ver</button>
+      <button class="btn-chip" onclick="abrirEdicionPedido('${p._id}')">✏️ Editar</button>
       <button class="btn-chip btn-chip-red" onclick="eliminarPedido('${p._id}')">🗑️</button>
     </div></div>`;
 }
@@ -1419,6 +1727,149 @@ function abrirModalCobroNuevoPedido(pedido) {
   document.querySelector('.tipo-pago-btn[data-tipo="completo"]').classList.add('selected');
   document.getElementById('cobroMetodo').value = '';
   document.getElementById('modalCobro').classList.add('active');
+}
+
+/* ============================================================
+ * EDICIÓN DE PEDIDO (Fase 1A)
+ * abrirEdicionPedido → precarga el form con los datos del pedido
+ * guardarEdicionPedido → reescribe en Firebase + Sheets
+ * cancelarEdicionPedido → sale sin guardar
+ * ============================================================ */
+function abrirEdicionPedido(id) {
+  const p = pedidos.find(x => x._id === id);
+  if (!p) { showToast('Pedido no encontrado', true); return; }
+
+  editandoPedidoId = id;
+  pedidoOriginalSheets = { cliente: p.cliente, fecha: p.fecha };
+
+  // Pre-cargar estado global ANTES de renderApp (para que sobreviva al render)
+  carrito = (p.items || []).map(it => ({ ...it }));
+  logisticaMonto = p.logistica || 0;
+  window._logisticaAgregada = (p.logistica || 0) > 0;
+  tipoEnvio = p.tipoEnvio || 'retiro';
+  // El horario puede ser uno de los predefinidos o un texto libre
+  const HORARIOS_PREDEF = ['11 a 14 hs', '13 a 17 hs', '16 a 20 hs', 'Todo el día'];
+  if (p.horario && HORARIOS_PREDEF.indexOf(p.horario) === -1) {
+    horarioPersonalizado = p.horario;
+    horarioSeleccionado = p.horario;
+  } else {
+    horarioSeleccionado = p.horario || '';
+    horarioPersonalizado = '';
+  }
+  clienteSeleccionado = null;
+
+  renderApp();
+
+  // Después del render, llenar los inputs y aplicar selecciones
+  document.getElementById('cliente').value = p.cliente || '';
+  document.getElementById('telefono').value = p.telefono || '';
+  document.getElementById('direccion').value = p.direccion || '';
+  if (p.fecha) document.getElementById('fecha').value = p.fecha;
+  if (p.vendedor) {
+    const vSel = document.getElementById('vendedor');
+    // Si el vendedor existe en el select, lo seteamos
+    const opt = Array.from(vSel.options).find(o => o.value === p.vendedor);
+    if (opt) vSel.value = p.vendedor;
+  }
+  if (p.descuentoPct) document.getElementById('descuento').value = p.descuentoPct;
+
+  // Aplicar tipo de envío + fecha entrega + horario
+  seleccionarEnvio(tipoEnvio);
+  if (tipoEnvio === 'delivery') {
+    if (p.fechaEntrega) document.getElementById('fechaEntrega').value = p.fechaEntrega;
+    if (horarioPersonalizado) {
+      // Horario libre
+      activarHorarioPersonalizado();
+      const inp = document.getElementById('inputHorarioPersonalizado');
+      if (inp) inp.value = horarioPersonalizado;
+    } else if (horarioSeleccionado) {
+      const btn = document.querySelector('.horario-btn[data-horario="' + horarioSeleccionado + '"]');
+      if (btn) btn.classList.add('selected');
+    }
+  }
+
+  renderCarrito();
+  actualizarTotales();
+  document.getElementById('clienteBadge').innerHTML = '<span class="badge-existing">✏️ Editando</span>';
+  window.scrollTo(0, 0);
+  showToast('✏️ Editando pedido de ' + p.cliente, false);
+}
+
+function cancelarEdicionPedido() {
+  if (!confirm('¿Cancelar la edición? Los cambios no se guardan.')) return;
+  volverAPedidos();
+}
+
+async function guardarEdicionPedido() {
+  const cliente = document.getElementById('cliente').value.trim();
+  const telefono = document.getElementById('telefono').value.trim();
+  const direccion = document.getElementById('direccion').value.trim();
+  const fecha = document.getElementById('fecha').value;
+  const vendedor = document.getElementById('vendedor').value;
+
+  if (!cliente) { showToast('Ingresá el nombre del cliente', true); return; }
+  if (carrito.length === 0) { showToast('Agregá al menos un producto', true); return; }
+
+  let fechaEntrega = '';
+  if (tipoEnvio === 'delivery') {
+    fechaEntrega = document.getElementById('fechaEntrega') ? document.getElementById('fechaEntrega').value : '';
+    if (!fechaEntrega) { showToast('Seleccioná la fecha de entrega', true); return; }
+    if (!horarioSeleccionado) { showToast('Seleccioná o escribí el rango horario', true); return; }
+  }
+
+  const sub = carrito.reduce((s, i) => s + (i.subtotal || 0), 0);
+  const dp = parseFloat(document.getElementById('descuento').value) || 0;
+  const dm = sub * (dp / 100);
+  const tot = sub - dm + (logisticaMonto || 0);
+
+  // Buscar el pedido original para conservar campos de pago/timestamp/id
+  const original = pedidos.find(x => x._id === editandoPedidoId);
+  if (!original) { showToast('Pedido original no encontrado', true); return; }
+
+  const pedido = {
+    // Conservar del original
+    id: original.id,
+    timestamp: original.timestamp,
+    estado: original.estado || 'pendiente',
+    metodoPago: original.metodoPago || '',
+    fechaPago: original.fechaPago || '',
+    montoParcial: original.montoParcial || 0,
+    notasCobro: original.notasCobro || '',
+    // Datos nuevos
+    cliente, telefono, direccion, fecha, vendedor,
+    listaPrecios: config.listaActiva,
+    items: [...carrito],
+    logistica: logisticaMonto || 0,
+    tipoEnvio,
+    fechaEntrega,
+    horario: horarioSeleccionado,
+    subtotalPedido: sub, descuentoPct: dp, descuentoMonto: dm, totalFinal: tot,
+    alias: config.alias, titular: config.titular
+  };
+
+  try {
+    const { updateDoc, doc } = window.firebaseFns;
+    await updateDoc(doc(window.firebaseDB, 'pedidos', editandoPedidoId), pedido);
+
+    // Sincronizar con Sheets si está configurado
+    if (config && config.sheetsUrl && pedidoOriginalSheets) {
+      showToast('📋 Actualizando Google Sheets...', false);
+      const r = await editarPedidoEnSheets(pedido, pedidoOriginalSheets.cliente, pedidoOriginalSheets.fecha);
+      if (r.success) showToast('✅ Pedido editado · Firebase + Sheets', false, 'success');
+      else showToast('✅ Firebase OK · ⚠️ Sheets: ' + (r.error || 'sin confirmar'), true);
+    } else {
+      showToast('✅ Pedido editado', false, 'success');
+    }
+
+    // Reset y volver al listado
+    editandoPedidoId = null;
+    pedidoOriginalSheets = null;
+    carrito = []; logisticaMonto = 0; window._logisticaAgregada = false;
+    horarioPersonalizado = '';
+    renderPedidos();
+  } catch(e) {
+    showToast('Error guardando edición: ' + e.message, true);
+  }
 }
 
 function marcarPagado(id) {
@@ -1526,6 +1977,171 @@ function formatNum(n) { return Number(n).toLocaleString('es-AR', { minimumFracti
 function formatFecha(iso) { if (!iso) return ''; const [y,m,d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; }
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function showToast(msg, isErr, type) { const t = document.getElementById('toast'); t.textContent = msg; let cls = 'toast show'; if (isErr) cls += ' error'; else if (type === 'success') cls += ' success'; t.className = cls; setTimeout(() => t.classList.remove('show'), 3500); }
+
+/* ============================================================
+ * FASE 2 — FICHA PARA GOOGLE CALENDAR
+ * Genera link `render?action=TEMPLATE` con título + body + fecha/hora.
+ * Santi confirma desde Calendar y elige color Grafito.
+ * ============================================================ */
+
+// Mapeo de horarios predefinidos → [horaInicio, horaFin]
+const HORARIOS_RANGOS = {
+  '11 a 14 hs': [11, 14],
+  '13 a 17 hs': [13, 17],
+  '16 a 20 hs': [16, 20]
+};
+
+// Parsea un horario libre tipo "9 a 11 hs", "a las 18", "18:30", etc.
+function parsearHorarioLibre(horario) {
+  if (!horario) return null;
+  const h = String(horario).toLowerCase().trim();
+
+  // "X a Y hs" o "X a Y"
+  let m = h.match(/(\d{1,2})\s*[a\-–]\s*(\d{1,2})/);
+  if (m) {
+    const ini = parseInt(m[1]);
+    const fin = parseInt(m[2]);
+    if (ini >= 0 && ini <= 23 && fin >= 0 && fin <= 23 && fin > ini) return [ini, fin];
+  }
+
+  // "a las HH" o "HH:MM"
+  m = h.match(/(\d{1,2})(?::(\d{2}))?/);
+  if (m) {
+    const hh = parseInt(m[1]);
+    const mm = m[2] ? parseInt(m[2]) : 0;
+    if (hh >= 0 && hh <= 23) return [hh + mm/60, hh + 1 + mm/60]; // 1 hora de duración por defecto
+  }
+
+  return null;
+}
+
+// Devuelve {start: Date, end: Date, allDay: bool} para un pedido.
+function calcularFechaHoraCalendar(p) {
+  const fechaIso = (p.tipoEnvio === 'delivery' && p.fechaEntrega) ? p.fechaEntrega : p.fecha;
+  if (!fechaIso) return null;
+  const [y, mo, d] = fechaIso.split('-').map(Number);
+  // Construir como local (no UTC)
+  const base = new Date(y, mo - 1, d);
+
+  // Si es delivery con horario conocido, intentar rango
+  if (p.tipoEnvio === 'delivery' && p.horario && p.horario !== 'Todo el día') {
+    let rango = HORARIOS_RANGOS[p.horario];
+    if (!rango) rango = parsearHorarioLibre(p.horario);
+    if (rango) {
+      const start = new Date(y, mo - 1, d, Math.floor(rango[0]), Math.round((rango[0] % 1) * 60));
+      const end = new Date(y, mo - 1, d, Math.floor(rango[1]), Math.round((rango[1] % 1) * 60));
+      return { start, end, allDay: false };
+    }
+  }
+  // Fallback: evento all-day
+  return { start: base, end: base, allDay: true };
+}
+
+// Formatea Date a YYYYMMDDTHHMMSS (sin Z, hora local — Calendar lo interpreta en TZ del usuario)
+function formatDateCalendar(d, allDay) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  if (allDay) return `${y}${m}${day}`;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${y}${m}${day}T${hh}${mm}00`;
+}
+
+// Texto multilínea de la ficha (template confirmado por Santi).
+function formatearFichaCalendar(p) {
+  const fechaStr = (p.tipoEnvio === 'delivery' && p.fechaEntrega) ? formatFecha(p.fechaEntrega) : formatFecha(p.fecha);
+  const horarioStr = (p.tipoEnvio === 'delivery' && p.horario) ? ' | ⏰ ' + p.horario : '';
+  const dirStr = p.direccion ? ' | 📍 ' + p.direccion : '';
+  const telStr = p.telefono ? ' | 📞 ' + p.telefono : '';
+
+  let body = '';
+  body += `👤 ${p.cliente || '-'} | 📅 ${fechaStr}${telStr}${dirStr}${horarioStr}\n\n`;
+  body += `🧑‍💼 VENDEDOR: ${p.vendedor || '-'}\n\n`;
+  body += `📦 PEDIDO:\n`;
+  (p.items || []).forEach(it => {
+    const sinCant = !it.pesoOCantidad || it.pesoOCantidad <= 0;
+    const qty = sinCant ? '⏳ pendiente de ' + (it.tipo === 'kg' ? 'pesar' : 'contar') : (it.tipo === 'kg' ? it.pesoOCantidad.toFixed(3) + 'kg' : it.pesoOCantidad + 'u');
+    body += `   • ${it.producto} — ${qty}\n`;
+  });
+  body += `   🥩 FRESCO / ❄️ CONGELADO  (marcar)\n\n`;
+  body += `📍 REFERENCIA DE ENTREGA:\n   ___\n\n`;
+  const totalStr = (p.totalFinal && p.totalFinal > 0) ? '$ ' + formatNum(p.totalFinal) : '$ ___';
+  body += `A COBRAR EN EFECTIVO: ${totalStr}\n`;
+  // wa.me link: limpiar teléfono y armar
+  const waNum = (p.telefono || '').replace(/\D/g, '');
+  const waLink = waNum ? `wa.me/549${waNum}` : 'wa.me/549___';
+  body += `NOMBRE Y CONTACTO DE QUIEN RECIBE: ${waLink}\n`;
+  body += `TARJETITA / DEDICATORIA: ___\n`;
+  body += `FORMA DE PAGO: ${p.metodoPago || '___'}`;
+  return body;
+}
+
+function tituloCalendar(p) {
+  return `PEDIDO BUTCHER - ${(p.cliente || '').toUpperCase()}`;
+}
+
+function generarLinkCalendar(p) {
+  const fh = calcularFechaHoraCalendar(p);
+  if (!fh) return null;
+  const fechas = formatDateCalendar(fh.start, fh.allDay) + '/' + formatDateCalendar(fh.end, fh.allDay);
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: tituloCalendar(p),
+    dates: fechas,
+    details: formatearFichaCalendar(p)
+  });
+  if (p.direccion) params.set('location', p.direccion);
+  return 'https://calendar.google.com/calendar/render?' + params.toString();
+}
+
+let pedidoParaCalendar = null;
+
+function abrirFichaCalendar(pedido) {
+  pedidoParaCalendar = pedido;
+  document.getElementById('fichaCalendarTitulo').textContent = tituloCalendar(pedido);
+  document.getElementById('fichaCalendarBody').textContent = formatearFichaCalendar(pedido);
+  document.getElementById('modalFichaCalendar').classList.add('active');
+}
+
+function cerrarFichaCalendar() {
+  document.getElementById('modalFichaCalendar').classList.remove('active');
+  pedidoParaCalendar = null;
+}
+
+function ejecutarAgendarCalendar() {
+  if (!pedidoParaCalendar) return;
+  const url = generarLinkCalendar(pedidoParaCalendar);
+  if (!url) { showToast('No se pudo armar el evento (falta fecha)', true); return; }
+  window.open(url, '_blank');
+  showToast('📅 Abriendo Calendar — recordá elegir color Grafito', false);
+}
+
+async function copiarFichaCalendar() {
+  if (!pedidoParaCalendar) return;
+  const texto = tituloCalendar(pedidoParaCalendar) + '\n\n' + formatearFichaCalendar(pedidoParaCalendar);
+  try {
+    await navigator.clipboard.writeText(texto);
+    showToast('📋 Ficha copiada al portapapeles', false, 'success');
+  } catch(e) {
+    // Fallback: textarea temporal
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast('📋 Ficha copiada', false, 'success'); }
+    catch(e2) { showToast('No se pudo copiar: ' + e2.message, true); }
+    document.body.removeChild(ta);
+  }
+}
+
+// Wrapper: arma el pedido desde sessionStorage y abre la ficha (lo invoca el botón del resumen)
+function agendarEnCalendarDesdeResumen() {
+  const raw = sessionStorage.getItem('pedidoActual');
+  if (!raw) { showToast('No hay pedido activo', true); return; }
+  try { abrirFichaCalendar(JSON.parse(raw)); }
+  catch(e) { showToast('Error leyendo el pedido', true); }
+}
 
 document.addEventListener('click', function(e) {
   const sugg = document.getElementById('productoSuggestions');
