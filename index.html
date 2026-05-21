@@ -326,7 +326,7 @@ input[readonly] { background: #f5f5f5; }
         <label>Producto</label>
         <div class="producto-search-container">
           <span class="producto-search-icon">🔍</span>
-          <input type="text" id="inputBuscarProducto" class="producto-search-input" placeholder="Escribí para buscar..." autocomplete="off" oninput="onProductoSearchInput()" onfocus="onProductoSearchInput()">
+          <input type="text" id="inputBuscarProducto" class="producto-search-input" placeholder="Escribí para buscar..." autocomplete="off" oninput="onProductoSearchInput()">
           <div class="producto-suggestions" id="productoSuggestions"></div>
         </div>
         <div class="producto-selected-box" id="productoSelectedBox">
@@ -1169,7 +1169,8 @@ function onProductoSearchInput() {
   const input = document.getElementById('inputBuscarProducto');
   const valor = normalizar(input.value);
   const sugg = document.getElementById('productoSuggestions');
-  if (valor.length < 1) { mostrarTodosProductos(sugg); return; }
+  // Con campo vacío: NO mostrar nada (antes mostraba todo el catálogo y tapaba el modal)
+  if (valor.length < 1) { sugg.classList.remove('active'); sugg.innerHTML = ''; return; }
   const disp = productos
     .map((p, i) => ({ ...p, idx: i }))
     .filter(p => p.precios && p.precios[config.listaActiva] > 0)
