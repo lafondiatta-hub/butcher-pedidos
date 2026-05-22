@@ -2336,7 +2336,17 @@ async function procesarImportarPedido() {
     }
     if (!result.success) {
       btn.disabled = false; btn.textContent = '🤖 Procesar con IA';
-      showToast('Error IA: ' + (result.error || 'desconocido'), true);
+      const errStr = (result.error || '').toString();
+      let msg = errStr;
+      // Mensajes user-friendly según código
+      if (errStr.indexOf('503') !== -1 || errStr.indexOf('saturado') !== -1 || errStr.indexOf('UNAVAILABLE') !== -1) {
+        msg = '🤖 Gemini saturado por alta demanda. Esperá 30-60 seg y volvé a darle "Procesar".';
+      } else if (errStr.indexOf('429') !== -1 || errStr.indexOf('quota') !== -1) {
+        msg = '🤖 Cuota agotada de Gemini. Esperá unos minutos y reintentá.';
+      } else if (errStr.indexOf('GEMINI_API_KEY') !== -1) {
+        msg = '⚠️ Falta API key en el Apps Script. Setealá en Propiedades del script.';
+      }
+      showToast(msg, true);
       return;
     }
     importarDatosExtraidos = result.datos || {};

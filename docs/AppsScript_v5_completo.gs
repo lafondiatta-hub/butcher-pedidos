@@ -475,7 +475,8 @@ function extraerPedido(data) {
     }
   }
 
-  var endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+  // Cadena de modelos a intentar en orden: si el primero da 503/429, prueba el siguiente
+  var modelos = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
   var body = {
     contents: [{ parts: parts }],
     generationConfig: {
@@ -484,36 +485,62 @@ function extraerPedido(data) {
     }
   };
 
-  try {
-    var resp = UrlFetchApp.fetch(endpoint, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(body),
-      muteHttpExceptions: true
-    });
-    var code = resp.getResponseCode();
-    var text = resp.getContentText();
-    if (code < 200 || code >= 300) {
-      return { success: false, error: 'Gemini HTTP ' + code + ': ' + text.slice(0, 300) };
+  var ultimoError = '';
+
+  for (var mi = 0; mi < modelos.length; mi++) {
+    var modelo = modelos[mi];
+    var endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelo + ':generateContent?key=' + apiKey;
+
+    // Retry con backoff por modelo: hasta 3 intentos
+    for (var intento = 0; intento < 3; intento++) {
+      if (intento > 0) Utilities.sleep(1500 * intento); // 1.5s, 3s
+
+      try {
+        var resp = UrlFetchApp.fetch(endpoint, {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(body),
+          muteHttpExceptions: true
+        });
+        var code = resp.getResponseCode();
+        var text = resp.getContentText();
+
+        // 503 (saturado) o 429 (cuota) → reintentar mismo modelo, después fallback
+        if (code === 503 || code === 429) {
+          ultimoError = 'HTTP ' + code + ' en ' + modelo;
+          continue; // sigue al siguiente intento
+        }
+        if (code < 200 || code >= 300) {
+          return { success: false, error: 'Gemini HTTP ' + code + ' (' + modelo + '): ' + text.slice(0, 300) };
+        }
+
+        var parsed = JSON.parse(text);
+        var rawJson = parsed && parsed.candidates && parsed.candidates[0] &&
+                      parsed.candidates[0].content && parsed.candidates[0].content.parts &&
+                      parsed.candidates[0].content.parts[0] && parsed.candidates[0].content.parts[0].text;
+        if (!rawJson) {
+          ultimoError = 'Respuesta vacía de ' + modelo;
+          continue;
+        }
+        var datos;
+        try { datos = JSON.parse(rawJson); }
+        catch(e) {
+          var clean = rawJson.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+          try { datos = JSON.parse(clean); }
+          catch(e2) { return { success: false, error: 'JSON inválido de ' + modelo + ': ' + rawJson.slice(0, 300) }; }
+        }
+        return { success: true, datos: datos, modelo: modelo };
+      } catch(err) {
+        ultimoError = 'Excepción (' + modelo + '): ' + err.message;
+      }
     }
-    var parsed = JSON.parse(text);
-    var rawJson = parsed && parsed.candidates && parsed.candidates[0] &&
-                  parsed.candidates[0].content && parsed.candidates[0].content.parts &&
-                  parsed.candidates[0].content.parts[0] && parsed.candidates[0].content.parts[0].text;
-    if (!rawJson) {
-      return { success: false, error: 'Respuesta sin contenido. Raw: ' + text.slice(0, 300) };
-    }
-    var datos;
-    try { datos = JSON.parse(rawJson); }
-    catch(e) {
-      var clean = rawJson.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-      try { datos = JSON.parse(clean); }
-      catch(e2) { return { success: false, error: 'JSON inválido de Gemini: ' + rawJson.slice(0, 300) }; }
-    }
-    return { success: true, datos: datos };
-  } catch(err) {
-    return { success: false, error: 'Excepción: ' + err.message };
+    // Si llegamos acá, los 3 intentos de ESTE modelo fallaron — pasamos al siguiente
   }
+
+  return {
+    success: false,
+    error: 'Gemini saturado en los 3 modelos (intenté ' + modelos.join(', ') + '). Último: ' + ultimoError + '. Reintentá en 30-60 segundos.'
+  };
 }
 
 
