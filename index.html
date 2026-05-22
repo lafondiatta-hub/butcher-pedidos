@@ -423,6 +423,13 @@ input[readonly] { background: #f5f5f5; }
       <input type="hidden" id="inputEstadoProducto" value="fresco">
     </div>
 
+    <!-- VARIANTE DEL PRODUCTO (entraña, etc.) -->
+    <div class="form-row-full" id="varianteProductoBox" style="display:none; margin-top:8px;">
+      <label id="varianteProductoLabel">Variante</label>
+      <div id="varianteProductoOpciones" style="display:grid; gap:8px;"></div>
+      <input type="hidden" id="inputVarianteProducto" value="">
+    </div>
+
     <div class="row-2" style="margin-top: 16px;">
       <button class="btn btn-primary" id="btnConfirmarAgregar" onclick="confirmarAgregar()">Agregar</button>
       <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
@@ -1129,7 +1136,10 @@ function volverAlBuscadorCatalogo() {
 
 // Sugerencias del catálogo al tipear en modo manual: matches parciales
 function sugerirDelCatalogo() {
-  const valor = normalizar(document.getElementById('manualNombre').value);
+  const nombreActual = document.getElementById('manualNombre').value;
+  // Configurar variantes según el nombre (entraña, etc.)
+  configurarVariantesParaProducto(nombreActual);
+  const valor = normalizar(nombreActual);
   const box = document.getElementById('manualSugerencias');
   const lista = document.getElementById('manualSugerenciasLista');
   if (!valor || valor.length < 2) { box.style.display = 'none'; return; }
@@ -1193,6 +1203,37 @@ function seleccionarEstadoProducto(estado) {
   if (btn) btn.classList.add('selected');
 }
 
+// Renderizar selector de variantes para un producto (si tiene)
+function configurarVariantesParaProducto(nombreProducto, varianteActual) {
+  const box = document.getElementById('varianteProductoBox');
+  const lista = document.getElementById('varianteProductoOpciones');
+  const v = obtenerVariantesParaProducto(nombreProducto);
+  if (!v) {
+    box.style.display = 'none';
+    document.getElementById('inputVarianteProducto').value = '';
+    return;
+  }
+  // Las opciones (Clásica, Sin membrana, etc.) + "Sin indicar"
+  const opciones = [...v.opciones, ''];
+  const cols = opciones.length;
+  lista.style.gridTemplateColumns = '1fr '.repeat(cols).trim();
+  lista.innerHTML = opciones.map(op => {
+    const label = op === '' ? '— Sin indicar' : op;
+    return `<button type="button" class="estado-prod-btn" data-variante="${escapeHtml(op)}" onclick="seleccionarVarianteProducto('${escapeHtml(op).replace(/'/g, '&#39;')}')">${escapeHtml(label)}</button>`;
+  }).join('');
+  box.style.display = 'block';
+  // Default: variante actual del item, o la primera opción si es nuevo
+  const variante = (typeof varianteActual === 'string') ? varianteActual : v.opciones[0];
+  seleccionarVarianteProducto(variante);
+}
+
+function seleccionarVarianteProducto(variante) {
+  document.getElementById('inputVarianteProducto').value = variante || '';
+  document.querySelectorAll('#varianteProductoOpciones .estado-prod-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.querySelector('#varianteProductoOpciones .estado-prod-btn[data-variante="' + (variante || '') + '"]');
+  if (btn) btn.classList.add('selected');
+}
+
 function aplicarTipoEnLabelCantidad(tipo) {
   const inp = document.getElementById('inputCantidad');
   if (tipo === 'kg') {
@@ -1249,6 +1290,8 @@ function abrirModalEditar(idx) {
   // Estado del producto (precarga)
   document.getElementById('estadoProductoBox').style.display = 'block';
   seleccionarEstadoProducto(item.estado || 'fresco');
+  // Variante del producto (entraña, etc.) — precarga
+  configurarVariantesParaProducto(item.producto, item.variante);
 
   // Cantidad (común a ambos)
   document.getElementById('labelCantidadBox').style.display = 'block';
@@ -1335,6 +1378,7 @@ function seleccionarProducto(idx) {
   box.classList.add('active');
   document.getElementById('labelCantidadBox').style.display = 'block';
   document.getElementById('estadoProductoBox').style.display = 'block';
+  configurarVariantesParaProducto(p.nombre);
   if (p.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
     document.getElementById('inputCantidad').step = '0.001';
@@ -1367,6 +1411,8 @@ function confirmarAgregar() {
   const cant = (cantRaw === '' || cantRaw === null) ? 0 : (parseFloat(cantRaw) || 0);
   // Estado del producto (puede ser 'fresco', 'congelado' o '')
   const estadoProd = document.getElementById('inputEstadoProducto').value || '';
+  // Variante del producto (Clásica, Sin membrana, etc. o '')
+  const varianteProd = document.getElementById('inputVarianteProducto').value || '';
 
   // === MODO EDICIÓN DE ÍTEM EXISTENTE ===
   if (editandoItemIdx >= 0) {
@@ -1387,6 +1433,7 @@ function confirmarAgregar() {
     item.subtotal = cant * (item.precio || 0);
     item.pendiente = (!cant || cant <= 0) || (!item.precio || item.precio <= 0);
     item.estado = estadoProd;
+    item.variante = varianteProd;
     renderCarrito();
     actualizarTotales();
     cerrarModal();
@@ -1410,7 +1457,8 @@ function confirmarAgregar() {
       subtotal: cant * precio,
       manual: true,
       pendiente,
-      estado: estadoProd
+      estado: estadoProd,
+      variante: varianteProd
     });
     renderCarrito(); actualizarTotales(); cerrarModal();
     showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
@@ -1428,7 +1476,8 @@ function confirmarAgregar() {
     precio,
     subtotal: cant * precio,
     pendiente,
-    estado: estadoProd
+    estado: estadoProd,
+    variante: varianteProd
   });
   renderCarrito(); actualizarTotales(); cerrarModal();
   showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
@@ -1460,11 +1509,12 @@ function renderCarrito() {
     const estadoTag = item.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩 Fresco</span>'
                     : item.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️ Congelado</span>'
                     : '';
+    const varianteTag = item.variante ? '<span class="estado-tag" style="background:var(--cream); color:var(--navy);">' + escapeHtml(item.variante) + '</span>' : '';
     const borderStyle = esBorrador ? 'border-left:3px solid #f57c00;' : '';
     return `
       <div class="cart-item" style="${borderStyle}">
         <div class="cart-item-info">
-          <div class="cart-item-name">${escapeHtml(item.producto)}${estadoTag}${manualTag}</div>
+          <div class="cart-item-name">${escapeHtml(item.producto)}${varianteTag}${estadoTag}${manualTag}</div>
           <div class="cart-item-detail">${cantTxt} ${precioTxt}</div>
         </div>
         <div class="cart-item-price">${subtotalTxt}</div>
@@ -1608,7 +1658,8 @@ function renderResumen(p) {
     const estadoTag = i.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩</span>'
                     : i.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️</span>'
                     : '';
-    return `<tr><td>${escapeHtml(i.producto)}${estadoTag}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
+    const varianteTxt = i.variante ? ` <span style="font-size:11px; color:#666; font-style:italic;">(${escapeHtml(i.variante)})</span>` : '';
+    return `<tr><td>${escapeHtml(i.producto)}${varianteTxt}${estadoTag}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
   }).join('');
   const tieneBorrador = pedidoEsBorrador(p);
   const banderaBorrador = tieneBorrador ? `<div style="background:#fff3e0; border-left:4px solid #f57c00; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#e65100; font-weight:600;">📝 BORRADOR — hay items sin pesar o sin precio. El total final se confirma cuando completes los datos.</div>` : '';
@@ -1701,10 +1752,11 @@ function compartirWhatsApp() {
     const sinPrecio = !i.precio || i.precio <= 0;
     const qty = sinCant ? '⏳ pendiente' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3)+' kg' : i.pesoOCantidad+' u');
     const estadoEmoji = i.estado === 'fresco' ? ' 🥩' : i.estado === 'congelado' ? ' ❄️' : '';
+    const varianteTxt = i.variante ? ' (' + i.variante + ')' : '';
     if (sinCant || sinPrecio) {
-      msg += `• ${i.producto}${estadoEmoji} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
+      msg += `• ${i.producto}${varianteTxt}${estadoEmoji} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
     } else {
-      msg += `• ${i.producto}${estadoEmoji} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
+      msg += `• ${i.producto}${varianteTxt}${estadoEmoji} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
     }
   });
   if (pedidoEsBorrador(p)) msg += `\n📝 *Pedido en BORRADOR* — total final por confirmar.\n`;
@@ -2170,6 +2222,21 @@ function showToast(msg, isErr, type) { const t = document.getElementById('toast'
  * Santi confirma desde Calendar y elige color Grafito.
  * ============================================================ */
 
+// Productos con variantes — al detectar la palabra clave (lowercase) en el nombre,
+// muestra el selector de variante. Se puede extender fácilmente.
+const VARIANTES_PRODUCTO = {
+  'entraña': ['Clásica', 'Sin membrana'],
+  'entrana': ['Clásica', 'Sin membrana']  // sin tilde por si acaso
+};
+
+function obtenerVariantesParaProducto(nombre) {
+  const n = normalizar(nombre || '');
+  for (const key in VARIANTES_PRODUCTO) {
+    if (n.indexOf(key) !== -1) return { key, opciones: VARIANTES_PRODUCTO[key] };
+  }
+  return null;
+}
+
 // Mapeo de horarios predefinidos → [horaInicio, horaFin]
 const HORARIOS_RANGOS = {
   '11 a 14 hs': [11, 14],
@@ -2249,7 +2316,8 @@ function formatearFichaCalendar(p) {
     const sinCant = !it.pesoOCantidad || it.pesoOCantidad <= 0;
     const qty = sinCant ? '⏳ pendiente de ' + (it.tipo === 'kg' ? 'pesar' : 'contar') : (it.tipo === 'kg' ? it.pesoOCantidad.toFixed(3) + 'kg' : it.pesoOCantidad + 'u');
     const estadoEmoji = it.estado === 'fresco' ? ' 🥩' : it.estado === 'congelado' ? ' ❄️' : '';
-    body += `   • ${it.producto} — ${qty}${estadoEmoji}\n`;
+    const varianteTxt = it.variante ? ' (' + it.variante + ')' : '';
+    body += `   • ${it.producto}${varianteTxt} — ${qty}${estadoEmoji}\n`;
   });
   body += `\n`;
   body += `📍 REFERENCIA DE ENTREGA:\n   ___\n\n`;

@@ -223,11 +223,13 @@ function guardarPedido(pedido) {
   var comentario = '';
   if (pedido.items && pedido.items.length > 0) {
     comentario = pedido.items.map(function(item) {
+      var nombre = item.producto;
+      if (item.variante) nombre += ' [' + item.variante + ']';
       var base;
       if (item.tipo === 'kg') {
-        base = item.producto + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
+        base = nombre + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
       } else {
-        base = item.producto + ' (' + item.pesoOCantidad + 'u)';
+        base = nombre + ' (' + item.pesoOCantidad + 'u)';
       }
       if (item.estado === 'fresco') base += ' 🥩';
       else if (item.estado === 'congelado') base += ' ❄️';
@@ -345,11 +347,13 @@ function editarPedido(data) {
   var comentario = '';
   if (pedido.items && pedido.items.length > 0) {
     comentario = pedido.items.map(function(item) {
+      var nombre = item.producto;
+      if (item.variante) nombre += ' [' + item.variante + ']';
       var base;
       if (item.tipo === 'kg') {
-        base = item.producto + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
+        base = nombre + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
       } else {
-        base = item.producto + ' (' + item.pesoOCantidad + 'u)';
+        base = nombre + ' (' + item.pesoOCantidad + 'u)';
       }
       if (item.estado === 'fresco') base += ' 🥩';
       else if (item.estado === 'congelado') base += ' ❄️';
