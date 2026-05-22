@@ -111,10 +111,7 @@ function actualizarPago(data) {
   var nuevoEstado = data.estado || 'Pagado';
   var metodoPago = data.metodoPago || '';
   var fechaPago = data.fechaPago || '';
-
-  if (!cliente) {
-    return { success: false, error: 'Falta el nombre del cliente' };
-  }
+  var sheetNumBuscado = parseInt(data.sheetNum) || 0;
 
   var ultimaFila = hoja.getLastRow();
   if (ultimaFila < 2) {
@@ -126,7 +123,22 @@ function actualizarPago(data) {
   var filaEncontrada = -1;
   var mejorMatch = -1;
 
-  for (var i = datos.length - 1; i >= 0; i--) {
+  // 🎯 PRIORIDAD 1: buscar por N° (col A) si viene
+  if (sheetNumBuscado > 0) {
+    for (var k = 0; k < datos.length; k++) {
+      if ((parseInt(datos[k][0]) || 0) === sheetNumBuscado) {
+        filaEncontrada = k + 2;
+        break;
+      }
+    }
+  }
+
+  // Si no se encontró por N° (o no vino sheetNum), fallback: cliente + fecha
+  if (filaEncontrada === -1 && !cliente) {
+    return { success: false, error: 'Falta sheetNum o cliente para ubicar el pedido' };
+  }
+
+  if (filaEncontrada === -1) for (var i = datos.length - 1; i >= 0; i--) {
     var clienteFila = (datos[i][5] || '').toString().trim().toLowerCase();
     if (clienteFila !== cliente) continue;
 
@@ -295,10 +307,7 @@ function editarPedido(data) {
 
   var clienteOrig = (data.clienteOriginal || pedido.cliente || '').toString().trim().toLowerCase();
   var fechaOrig = (data.fechaOriginal || pedido.fecha || '').toString().trim();
-
-  if (!clienteOrig) {
-    return { success: false, error: 'Falta el cliente original para ubicar el pedido' };
-  }
+  var sheetNumBuscado = parseInt(data.sheetNum) || 0;
 
   var ultimaFila = hoja.getLastRow();
   if (ultimaFila < 2) {
@@ -309,7 +318,24 @@ function editarPedido(data) {
 
   var filaEncontrada = -1;
   var numPedidoExistente = 0;
-  for (var i = datos.length - 1; i >= 0; i--) {
+
+  // 🎯 PRIORIDAD 1: buscar por N° (col A) si viene
+  if (sheetNumBuscado > 0) {
+    for (var k = 0; k < datos.length; k++) {
+      if ((parseInt(datos[k][0]) || 0) === sheetNumBuscado) {
+        filaEncontrada = k + 2;
+        numPedidoExistente = sheetNumBuscado;
+        break;
+      }
+    }
+  }
+
+  if (filaEncontrada === -1 && !clienteOrig) {
+    return { success: false, error: 'Falta sheetNum o cliente original para ubicar el pedido' };
+  }
+
+  // PRIORIDAD 2 (fallback): cliente + fecha
+  if (filaEncontrada === -1) for (var i = datos.length - 1; i >= 0; i--) {
     var clienteFila = (datos[i][5] || '').toString().trim().toLowerCase();
     if (clienteFila !== clienteOrig) continue;
 

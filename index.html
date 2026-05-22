@@ -693,6 +693,7 @@ async function actualizarPagoEnSheets(pedido, nuevoEstado, metodoPago, fechaPago
   if (!url) return { success: false, error: 'Sin URL de Sheets' };
   const payload = JSON.stringify({
     action: 'actualizarPago',
+    sheetNum: pedido.sheetNum || null,        // 🎯 búsqueda exacta por N° si existe
     pedidoId: pedido.id || pedido._id,
     cliente: pedido.cliente,
     fecha: pedido.fecha,
@@ -725,6 +726,7 @@ async function editarPedidoEnSheets(pedido, clienteOriginal, fechaOriginal) {
   if (!url) return { success: false, error: 'Sin URL de Sheets' };
   const payload = JSON.stringify({
     action: 'editarPedido',
+    sheetNum: pedido.sheetNum || null,        // 🎯 búsqueda exacta por N° si existe
     clienteOriginal,
     fechaOriginal,
     pedido: { ...pedido, vendedor: pedido.vendedor || config.vendedor || 'App' }
@@ -1610,12 +1612,20 @@ async function generarResumen() {
 }
 
 async function guardarPedidoCompleto(pedido) {
-  await guardarPedidoEnFirebase(pedido);
+  const docId = await guardarPedidoEnFirebase(pedido);
   if (config && config.sheetsUrl) {
     showToast('📋 Enviando a Google Sheets...', false);
     const result = await enviarAGoogleSheets(pedido);
-    if (result.success) showToast('✅ Guardado en Firebase + Google Sheets', false, 'success');
-    else showToast('⚠️ Firebase OK, error en Sheets: ' + (result.error || 'desconocido'), true);
+    if (result.success) {
+      // Guardar el N° de Sheet en Firebase para ediciones futuras robustas
+      if (result.numPedido && docId) {
+        try {
+          const { updateDoc, doc } = window.firebaseFns;
+          await updateDoc(doc(window.firebaseDB, 'pedidos', docId), { sheetNum: result.numPedido });
+        } catch(e) { console.warn('No se pudo guardar sheetNum:', e); }
+      }
+      showToast('✅ Guardado en Firebase + Sheets (N° ' + (result.numPedido || '?') + ')', false, 'success');
+    } else showToast('⚠️ Firebase OK, error en Sheets: ' + (result.error || 'desconocido'), true);
   } else showToast('✅ Guardado en Firebase', false, 'success');
 }
 
@@ -1634,8 +1644,9 @@ async function guardarPedidoEnFirebase(pedido) {
       const nc = { nombre: pedido.cliente, telefono: pedido.telefono, direccion: pedido.direccion, fechaAlta: pedido.fecha, ultimoPedido: pedido.fecha, cantPedidos: 1, totalGastado: pedido.totalFinal, notas: '' };
       await addDoc(collection(db, 'clientes'), nc);
     }
-    await addDoc(collection(db, 'pedidos'), pedido);
-  } catch(err) { console.error('Error Firebase:', err); showToast('⚠️ Error guardando en Firebase', true); }
+    const ref = await addDoc(collection(db, 'pedidos'), pedido);
+    return ref.id;
+  } catch(err) { console.error('Error Firebase:', err); showToast('⚠️ Error guardando en Firebase', true); return null; }
 }
 
 function renderResumen(p) {
@@ -1674,7 +1685,7 @@ function renderResumen(p) {
     <div class="resumen-page" id="resumenCaptura">
       <div class="top">
         <img src="assets/butcher-logo.png" alt="The Butcher" class="logo-img">
-        <div class="cliente-box"><div class="datos"><div><b>Cliente:</b> ${escapeHtml(p.cliente)}</div><div><b>Fecha:</b> ${fechaFmt}</div><div><b>Vendedor:</b> ${escapeHtml(p.vendedor||'')}</div></div>${ciHTML}</div>
+        <div class="cliente-box"><div class="datos">${p.sheetNum ? `<div><b>N°:</b> #${p.sheetNum}</div>` : ''}<div><b>Cliente:</b> ${escapeHtml(p.cliente)}</div><div><b>Fecha:</b> ${fechaFmt}</div><div><b>Vendedor:</b> ${escapeHtml(p.vendedor||'')}</div></div>${ciHTML}</div>
       </div>
       ${entregaHTML}
       ${banderaBorrador}
@@ -1933,7 +1944,7 @@ function renderPedidoCard(p) {
     : '';
   return `<div style="background:${c.bg};border-left:4px solid ${c.border};padding:12px;border-radius:8px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
-      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${borradorTag}${logTag}</div>
+      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${p.sheetNum ? `<span style="background:var(--navy);color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">#${p.sheetNum}</span>` : ''}<div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${borradorTag}${logTag}</div>
       <div style="font-size:11px;color:#666;margin-top:4px;">${formatFecha(p.fecha)} · ${p.vendedor||''} · ${p.items.length} ítem${p.items.length!==1?'s':''}</div>
       ${envioTag}
       </div>
