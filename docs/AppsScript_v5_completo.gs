@@ -221,11 +221,15 @@ function guardarPedido(pedido) {
   var comentario = '';
   if (pedido.items && pedido.items.length > 0) {
     comentario = pedido.items.map(function(item) {
+      var base;
       if (item.tipo === 'kg') {
-        return item.producto + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
+        base = item.producto + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
       } else {
-        return item.producto + ' (' + item.pesoOCantidad + 'u)';
+        base = item.producto + ' (' + item.pesoOCantidad + 'u)';
       }
+      if (item.estado === 'fresco') base += ' 🥩';
+      else if (item.estado === 'congelado') base += ' ❄️';
+      return base;
     }).join(', ');
   }
   if (pedido.tipoEnvio === 'delivery' && pedido.horario) {
@@ -339,11 +343,15 @@ function editarPedido(data) {
   var comentario = '';
   if (pedido.items && pedido.items.length > 0) {
     comentario = pedido.items.map(function(item) {
+      var base;
       if (item.tipo === 'kg') {
-        return item.producto + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
+        base = item.producto + ' (' + Number(item.pesoOCantidad).toFixed(3) + 'kg)';
       } else {
-        return item.producto + ' (' + item.pesoOCantidad + 'u)';
+        base = item.producto + ' (' + item.pesoOCantidad + 'u)';
       }
+      if (item.estado === 'fresco') base += ' 🥩';
+      else if (item.estado === 'congelado') base += ' ❄️';
+      return base;
     }).join(', ');
   }
   if (pedido.tipoEnvio === 'delivery' && pedido.horario) {

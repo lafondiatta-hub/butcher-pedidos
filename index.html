@@ -153,6 +153,15 @@ input[readonly] { background: #f5f5f5; }
 .btn-add:hover { background: #ede6d8; }
 .btn-meat { background: var(--meat-red); color: white; }
 .btn-meat:hover { background: var(--meat-red-dark); }
+/* Estado del producto: 🥩 Fresco / ❄️ Congelado / — */
+.estado-prod-btn { padding: 10px 6px; border: 2px solid #ddd; background: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; color: var(--navy); transition: all 0.15s; text-align: center; }
+.estado-prod-btn:hover { border-color: var(--navy); }
+.estado-prod-btn.selected[data-estado="fresco"] { border-color: var(--meat-red); background: #fbeaea; color: var(--meat-red); }
+.estado-prod-btn.selected[data-estado="congelado"] { border-color: #1976d2; background: #e3f2fd; color: #1976d2; }
+.estado-prod-btn.selected[data-estado=""] { border-color: #666; background: #f0f0f0; color: #666; }
+.estado-tag { font-size: 11px; padding: 2px 6px; border-radius: 8px; margin-left: 6px; font-weight: 600; display: inline-block; }
+.estado-tag-fresco { background: #fbeaea; color: var(--meat-red); }
+.estado-tag-congelado { background: #e3f2fd; color: #1976d2; }
 .btn-danger-small { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 18px; border: none; cursor: pointer; border-radius: 4px; }
 .btn-danger-small:hover { background: #ffebee; }
 .btn-edit-small { background: transparent; color: var(--navy); padding: 4px 8px; font-size: 16px; border: none; cursor: pointer; border-radius: 4px; }
@@ -397,6 +406,17 @@ input[readonly] { background: #f5f5f5; }
       <input type="number" id="inputCantidad" step="0.001" min="0" placeholder="0">
       <div class="hint" id="hintPrecio"></div>
       <div class="hint" style="margin-top:6px; color:#f57c00;">💡 Dejá en 0 o vacío si todavía no pesaste/contaste — queda como <b>borrador</b> y lo completás después</div>
+    </div>
+
+    <!-- ESTADO DEL PRODUCTO -->
+    <div class="form-row-full" id="estadoProductoBox" style="display:none; margin-top:8px;">
+      <label>Estado</label>
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;">
+        <button type="button" class="estado-prod-btn selected" data-estado="fresco" onclick="seleccionarEstadoProducto('fresco')">🥩 Fresco</button>
+        <button type="button" class="estado-prod-btn" data-estado="congelado" onclick="seleccionarEstadoProducto('congelado')">❄️ Congelado</button>
+        <button type="button" class="estado-prod-btn" data-estado="" onclick="seleccionarEstadoProducto('')">— Sin indicar</button>
+      </div>
+      <input type="hidden" id="inputEstadoProducto" value="fresco">
     </div>
 
     <div class="row-2" style="margin-top: 16px;">
@@ -1070,6 +1090,9 @@ function abrirModalAgregar() {
   document.getElementById('manualTipo').value = 'kg';
   document.getElementById('btnTipoKg').classList.add('selected');
   document.getElementById('btnTipoUnidad').classList.remove('selected');
+  // Reset estado: default fresco
+  document.getElementById('estadoProductoBox').style.display = 'none';
+  seleccionarEstadoProducto('fresco');
   document.getElementById('modalAgregar').classList.add('active');
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 100);
 }
@@ -1081,6 +1104,7 @@ function activarModoManual() {
   document.getElementById('seccionBuscarCatalogo').style.display = 'none';
   document.getElementById('seccionManual').style.display = 'block';
   document.getElementById('labelCantidadBox').style.display = 'block';
+  document.getElementById('estadoProductoBox').style.display = 'block';
   // Setear label de cantidad según tipo actual
   aplicarTipoEnLabelCantidad(document.getElementById('manualTipo').value);
   document.getElementById('inputCantidad').value = '';
@@ -1101,6 +1125,13 @@ function seleccionarTipoManual(tipo) {
   document.getElementById('btnTipoKg').classList.toggle('selected', tipo === 'kg');
   document.getElementById('btnTipoUnidad').classList.toggle('selected', tipo === 'unidad');
   aplicarTipoEnLabelCantidad(tipo);
+}
+
+function seleccionarEstadoProducto(estado) {
+  document.getElementById('inputEstadoProducto').value = estado;
+  document.querySelectorAll('.estado-prod-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.querySelector('.estado-prod-btn[data-estado="' + estado + '"]');
+  if (btn) btn.classList.add('selected');
 }
 
 function aplicarTipoEnLabelCantidad(tipo) {
@@ -1154,6 +1185,10 @@ function abrirModalEditar(idx) {
     document.getElementById('selProdPrice').textContent = '$' + formatNum(item.precio) + '/' + item.tipo;
     box.classList.add('active');
   }
+
+  // Estado del producto (precarga)
+  document.getElementById('estadoProductoBox').style.display = 'block';
+  seleccionarEstadoProducto(item.estado || 'fresco');
 
   // Cantidad (común a ambos)
   document.getElementById('labelCantidadBox').style.display = 'block';
@@ -1239,6 +1274,7 @@ function seleccionarProducto(idx) {
   document.getElementById('selProdPrice').textContent = '$' + formatNum(precio) + '/' + p.tipo;
   box.classList.add('active');
   document.getElementById('labelCantidadBox').style.display = 'block';
+  document.getElementById('estadoProductoBox').style.display = 'block';
   if (p.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
     document.getElementById('inputCantidad').step = '0.001';
@@ -1269,6 +1305,8 @@ function confirmarAgregar() {
   const cantRaw = document.getElementById('inputCantidad').value;
   // Cantidad puede ser vacío o 0 → modo borrador
   const cant = (cantRaw === '' || cantRaw === null) ? 0 : (parseFloat(cantRaw) || 0);
+  // Estado del producto (puede ser 'fresco', 'congelado' o '')
+  const estadoProd = document.getElementById('inputEstadoProducto').value || '';
 
   // === MODO EDICIÓN DE ÍTEM EXISTENTE ===
   if (editandoItemIdx >= 0) {
@@ -1288,6 +1326,7 @@ function confirmarAgregar() {
     item.pesoOCantidad = cant;
     item.subtotal = cant * (item.precio || 0);
     item.pendiente = (!cant || cant <= 0) || (!item.precio || item.precio <= 0);
+    item.estado = estadoProd;
     renderCarrito();
     actualizarTotales();
     cerrarModal();
@@ -1310,7 +1349,8 @@ function confirmarAgregar() {
       precio,
       subtotal: cant * precio,
       manual: true,
-      pendiente
+      pendiente,
+      estado: estadoProd
     });
     renderCarrito(); actualizarTotales(); cerrarModal();
     showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
@@ -1327,7 +1367,8 @@ function confirmarAgregar() {
     pesoOCantidad: cant,
     precio,
     subtotal: cant * precio,
-    pendiente
+    pendiente,
+    estado: estadoProd
   });
   renderCarrito(); actualizarTotales(); cerrarModal();
   showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
@@ -1356,11 +1397,14 @@ function renderCarrito() {
       ? '<span style="color:#e65100; font-size:12px; font-weight:600;">📝 BORRADOR</span>'
       : '$' + formatNum(item.subtotal);
     const manualTag = item.manual ? '<span style="background:#fff3e0; color:#e65100; font-size:10px; padding:1px 6px; border-radius:8px; margin-left:6px;">✍️ Manual</span>' : '';
+    const estadoTag = item.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩 Fresco</span>'
+                    : item.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️ Congelado</span>'
+                    : '';
     const borderStyle = esBorrador ? 'border-left:3px solid #f57c00;' : '';
     return `
       <div class="cart-item" style="${borderStyle}">
         <div class="cart-item-info">
-          <div class="cart-item-name">${escapeHtml(item.producto)}${manualTag}</div>
+          <div class="cart-item-name">${escapeHtml(item.producto)}${estadoTag}${manualTag}</div>
           <div class="cart-item-detail">${cantTxt} ${precioTxt}</div>
         </div>
         <div class="cart-item-price">${subtotalTxt}</div>
@@ -1501,7 +1545,10 @@ function renderResumen(p) {
     const uCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='unidad' ? i.pesoOCantidad : '-');
     const precioCell = sinPrecio ? '<span style="color:#e65100;">A definir</span>' : '$' + formatNum(i.precio);
     const subCell = (sinCant || sinPrecio) ? '<span style="color:#e65100; font-weight:700;">📝</span>' : '$' + formatNum(i.subtotal);
-    return `<tr><td>${escapeHtml(i.producto)}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
+    const estadoTag = i.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩</span>'
+                    : i.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️</span>'
+                    : '';
+    return `<tr><td>${escapeHtml(i.producto)}${estadoTag}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
   }).join('');
   const tieneBorrador = pedidoEsBorrador(p);
   const banderaBorrador = tieneBorrador ? `<div style="background:#fff3e0; border-left:4px solid #f57c00; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#e65100; font-weight:600;">📝 BORRADOR — hay items sin pesar o sin precio. El total final se confirma cuando completes los datos.</div>` : '';
@@ -1593,10 +1640,11 @@ function compartirWhatsApp() {
     const sinCant = !i.pesoOCantidad || i.pesoOCantidad <= 0;
     const sinPrecio = !i.precio || i.precio <= 0;
     const qty = sinCant ? '⏳ pendiente' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3)+' kg' : i.pesoOCantidad+' u');
+    const estadoEmoji = i.estado === 'fresco' ? ' 🥩' : i.estado === 'congelado' ? ' ❄️' : '';
     if (sinCant || sinPrecio) {
-      msg += `• ${i.producto} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
+      msg += `• ${i.producto}${estadoEmoji} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
     } else {
-      msg += `• ${i.producto} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
+      msg += `• ${i.producto}${estadoEmoji} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
     }
   });
   if (pedidoEsBorrador(p)) msg += `\n📝 *Pedido en BORRADOR* — total final por confirmar.\n`;
@@ -2140,9 +2188,10 @@ function formatearFichaCalendar(p) {
   (p.items || []).forEach(it => {
     const sinCant = !it.pesoOCantidad || it.pesoOCantidad <= 0;
     const qty = sinCant ? '⏳ pendiente de ' + (it.tipo === 'kg' ? 'pesar' : 'contar') : (it.tipo === 'kg' ? it.pesoOCantidad.toFixed(3) + 'kg' : it.pesoOCantidad + 'u');
-    body += `   • ${it.producto} — ${qty}\n`;
+    const estadoEmoji = it.estado === 'fresco' ? ' 🥩' : it.estado === 'congelado' ? ' ❄️' : '';
+    body += `   • ${it.producto} — ${qty}${estadoEmoji}\n`;
   });
-  body += `   🥩 FRESCO / ❄️ CONGELADO  (marcar)\n\n`;
+  body += `\n`;
   body += `📍 REFERENCIA DE ENTREGA:\n   ___\n\n`;
   const totalStr = (p.totalFinal && p.totalFinal > 0) ? '$ ' + formatNum(p.totalFinal) : '$ ___';
   body += `A COBRAR EN EFECTIVO: ${totalStr}\n`;
