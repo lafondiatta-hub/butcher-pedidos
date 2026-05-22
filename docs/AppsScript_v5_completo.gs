@@ -44,6 +44,8 @@ function doPost(e) {
       result = editarPedido(data);
     } else if (action === 'extraerPedido') {          // v5
       result = extraerPedido(data);
+    } else if (action === 'crearEventoCalendar') {    // v5.1
+      result = crearEventoCalendar(data);
     } else if (action === 'generarReporteMensual') {
       result = generarReporteMensual(data.mes, data.anio);
     } else {
@@ -414,6 +416,99 @@ function normalizarFechaParaButcher(valor) {
     return valor;
   }
   return '';
+}
+
+
+// ============================================================
+// CREAR EVENTO CALENDAR (v5.1)
+// Crea el evento directamente en el calendar "Eventos La Fondiatta"
+// (o el primero que matchee por nombre), con color Grafito.
+// Cae al calendar default si no encuentra match.
+//
+// data esperado desde la app:
+// {
+//   action: 'crearEventoCalendar',
+//   titulo: 'PEDIDO BUTCHER - ...',
+//   descripcion: '...texto multilínea...',
+//   fechaInicio: '2026-05-22T11:00:00' (ISO LOCAL sin Z),
+//   fechaFin:    '2026-05-22T14:00:00',
+//   allDay: false,
+//   location: '...',
+//   calendarName: 'Eventos La Fondiatta'  // nombre del calendar buscado
+// }
+// ============================================================
+function crearEventoCalendar(data) {
+  try {
+    if (!data.titulo || !data.fechaInicio) {
+      return { success: false, error: 'Falta titulo o fechaInicio' };
+    }
+    var calendarBuscado = (data.calendarName || 'Eventos La Fondiatta').toString().trim();
+
+    // Buscar el calendar por nombre (case-insensitive)
+    var cals = CalendarApp.getAllCalendars();
+    var calendar = null;
+    var nombreLower = calendarBuscado.toLowerCase();
+    for (var i = 0; i < cals.length; i++) {
+      if (cals[i].getName().toLowerCase() === nombreLower) {
+        calendar = cals[i];
+        break;
+      }
+    }
+    // Fallback: match parcial
+    if (!calendar) {
+      for (var j = 0; j < cals.length; j++) {
+        if (cals[j].getName().toLowerCase().indexOf(nombreLower) !== -1) {
+          calendar = cals[j];
+          break;
+        }
+      }
+    }
+    if (!calendar) {
+      // No hay calendar con ese nombre — devolver error con lista para que Santi vea cuáles tiene accesibles
+      var nombres = cals.map(function(c) { return c.getName(); }).slice(0, 20);
+      return {
+        success: false,
+        error: 'No encontré calendar "' + calendarBuscado + '". Calendars accesibles: ' + nombres.join(', ')
+      };
+    }
+
+    // Construir fechas — las ISO vienen en LOCAL (sin Z), las parseo asumiendo TZ del script
+    var inicio = new Date(data.fechaInicio);
+    var fin = data.fechaFin ? new Date(data.fechaFin) : new Date(inicio.getTime() + 60 * 60 * 1000);
+
+    var evento;
+    if (data.allDay) {
+      // Para all-day, CalendarApp usa solo la fecha
+      evento = calendar.createAllDayEvent(data.titulo, inicio, {
+        description: data.descripcion || '',
+        location: data.location || ''
+      });
+    } else {
+      evento = calendar.createEvent(data.titulo, inicio, fin, {
+        description: data.descripcion || '',
+        location: data.location || ''
+      });
+    }
+
+    // Color Grafito
+    try { evento.setColor(CalendarApp.EventColor.GRAY); } catch(e) { /* algunos calendars no permiten color */ }
+
+    var eventId = evento.getId();
+    // Link al evento (genérico de Google Calendar)
+    var calendarId = calendar.getId();
+    var link = 'https://calendar.google.com/calendar/u/0/r/event?eid=' +
+               Utilities.base64EncodeWebSafe(eventId.split('@')[0] + ' ' + calendarId).replace(/=+$/, '');
+
+    return {
+      success: true,
+      eventId: eventId,
+      eventLink: link,
+      calendarName: calendar.getName(),
+      message: 'Evento creado en ' + calendar.getName()
+    };
+  } catch(err) {
+    return { success: false, error: 'Excepción: ' + err.message };
+  }
 }
 
 

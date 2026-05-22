@@ -381,7 +381,11 @@ input[readonly] { background: #f5f5f5; }
       </div>
       <div class="form-row-full">
         <label>Nombre del producto</label>
-        <input type="text" id="manualNombre" placeholder="Ej: Asado de tira" autocomplete="off">
+        <input type="text" id="manualNombre" placeholder="Ej: Asado de tira" autocomplete="off" oninput="sugerirDelCatalogo()">
+        <div id="manualSugerencias" style="display:none; margin-top:6px; background:#f5f5f5; border:1px solid #ddd; border-radius:6px; padding:6px;">
+          <div style="font-size:11px; color:#666; padding:4px 8px; text-transform:uppercase; letter-spacing:0.5px;">💡 Sugerencias del catálogo (tap para vincular):</div>
+          <div id="manualSugerenciasLista"></div>
+        </div>
       </div>
       <div class="form-row">
         <div>
@@ -506,15 +510,18 @@ input[readonly] { background: #f5f5f5; }
   <div class="modal" style="max-width:560px;">
     <h3>📅 Agendar en Google Calendar</h3>
     <p style="font-size:13px; color:#666; margin-bottom:12px;">
-      Revisá la ficha. Al apretar <b>Abrir en Calendar</b> se abre el formulario de Google con todo cargado — confirmás vos y elegís el color <b>Grafito</b>.
+      Revisá la ficha. Al confirmar, el evento se crea <b>directamente en el calendar "Eventos La Fondiatta"</b> con color Grafito.
     </p>
     <div style="background:#f5f5f5; border:1px solid #ddd; border-radius:8px; padding:14px; margin-bottom:14px;">
       <div style="font-weight:700; color:#1a2542; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #ddd; font-size:14px;" id="fichaCalendarTitulo">PEDIDO BUTCHER - …</div>
       <pre id="fichaCalendarBody" style="white-space:pre-wrap; font-family:inherit; font-size:13px; color:#222; margin:0; line-height:1.5;"></pre>
     </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-      <button class="btn btn-primary" id="btnAbrirCalendar" onclick="ejecutarAgendarCalendar()">📅 Abrir en Calendar</button>
+      <button class="btn btn-meat" id="btnAgendarLF" onclick="agendarEnEventosLF()">📅 Agendar en Eventos LF</button>
       <button class="btn btn-secondary" onclick="copiarFichaCalendar()">📋 Copiar texto</button>
+    </div>
+    <div style="text-align:center; font-size:11px; color:#999; margin-top:8px;">
+      o <a href="#" onclick="ejecutarAgendarCalendar(); return false;" style="color:#666; text-decoration:underline;">abrir form de Calendar genérico (manual)</a>
     </div>
     <button class="btn btn-secondary" onclick="cerrarFichaCalendar()" style="margin-top:8px;">Cerrar</button>
   </div>
@@ -1120,6 +1127,58 @@ function volverAlBuscadorCatalogo() {
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 50);
 }
 
+// Sugerencias del catálogo al tipear en modo manual: matches parciales
+function sugerirDelCatalogo() {
+  const valor = normalizar(document.getElementById('manualNombre').value);
+  const box = document.getElementById('manualSugerencias');
+  const lista = document.getElementById('manualSugerenciasLista');
+  if (!valor || valor.length < 2) { box.style.display = 'none'; return; }
+  const matches = productos
+    .map((p, i) => ({ ...p, idx: i }))
+    .filter(p => p.precios && p.precios[config.listaActiva] > 0)
+    .filter(p => {
+      const norm = normalizar(p.nombre);
+      // Match si el query está contenido en el nombre o viceversa, o si comparten alguna palabra
+      if (norm.indexOf(valor) !== -1 || valor.indexOf(norm) !== -1) return true;
+      const valorWords = valor.split(' ').filter(w => w.length >= 3);
+      return valorWords.some(w => norm.indexOf(w) !== -1);
+    })
+    .slice(0, 5);
+  if (matches.length === 0) { box.style.display = 'none'; return; }
+  lista.innerHTML = matches.map(p => {
+    const precio = p.precios[config.listaActiva];
+    return `<div onclick="vincularAlCatalogo(${p.idx})" style="padding:8px 10px; cursor:pointer; border-radius:4px; display:flex; justify-content:space-between; align-items:center; gap:8px; background:white; margin-bottom:4px; border:1px solid #e5e5e5;">
+      <div>
+        <div style="font-weight:600; color:var(--navy); font-size:13px;">${escapeHtml(p.nombre)}</div>
+        <div style="font-size:11px; color:#999;">${p.categoria || ''}</div>
+      </div>
+      <div style="font-size:12px; color:var(--meat-red); font-weight:600; white-space:nowrap;">$${formatNum(precio)}/${p.tipo}</div>
+    </div>`;
+  }).join('');
+  box.style.display = 'block';
+}
+
+// Convertir el item manual en uno vinculado al catálogo
+function vincularAlCatalogo(idx) {
+  // Preservar la cantidad y estado actuales del modal
+  const cantActual = document.getElementById('inputCantidad').value;
+  const estadoActual = document.getElementById('inputEstadoProducto').value;
+  // Si estamos en modo edición, marcamos el item como NO manual
+  if (editandoItemIdx >= 0) {
+    carrito[editandoItemIdx].manual = false;
+  }
+  // Cambiar al flujo de catálogo
+  agregandoManual = false;
+  document.getElementById('seccionBuscarCatalogo').style.display = '';
+  document.getElementById('seccionManual').style.display = 'none';
+  document.getElementById('manualSugerencias').style.display = 'none';
+  seleccionarProducto(idx);
+  // Restaurar cantidad y estado
+  if (cantActual) document.getElementById('inputCantidad').value = cantActual;
+  seleccionarEstadoProducto(estadoActual);
+  showToast('✓ Vinculado a "' + productos[idx].nombre + '"', false);
+}
+
 function seleccionarTipoManual(tipo) {
   document.getElementById('manualTipo').value = tipo;
   document.getElementById('btnTipoKg').classList.toggle('selected', tipo === 'kg');
@@ -1168,6 +1227,7 @@ function abrirModalEditar(idx) {
     document.getElementById('manualNombre').value = item.producto || '';
     document.getElementById('manualPrecio').value = item.precio > 0 ? item.precio : '';
     seleccionarTipoManual(item.tipo || 'kg');
+    sugerirDelCatalogo(); // mostrar matches del catálogo al abrir edición de manual
   } else {
     // Modo catálogo: solo cantidad editable
     agregandoManual = false;
@@ -2242,6 +2302,76 @@ function ejecutarAgendarCalendar() {
   if (!url) { showToast('No se pudo armar el evento (falta fecha)', true); return; }
   window.open(url, '_blank');
   showToast('📅 Abriendo Calendar — recordá elegir color Grafito', false);
+}
+
+// Agendar directo en "Eventos La Fondiatta" via Apps Script (sin pasar por el form de Calendar)
+async function agendarEnEventosLF() {
+  if (!pedidoParaCalendar) return;
+  if (!config || !config.sheetsUrl) {
+    showToast('Configurá la URL del Apps Script primero', true);
+    return;
+  }
+  const p = pedidoParaCalendar;
+  const fh = calcularFechaHoraCalendar(p);
+  if (!fh) { showToast('No se pudo armar el evento (falta fecha)', true); return; }
+
+  // ISO local (sin Z) — el Apps Script lo interpreta en TZ de Buenos Aires
+  function toLocalIso(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) +
+           'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00';
+  }
+
+  const btn = document.getElementById('btnAgendarLF');
+  btn.disabled = true; btn.textContent = '⏳ Creando...';
+
+  const payload = {
+    action: 'crearEventoCalendar',
+    titulo: tituloCalendar(p),
+    descripcion: formatearFichaCalendar(p),
+    fechaInicio: toLocalIso(fh.start),
+    fechaFin: toLocalIso(fh.end),
+    allDay: fh.allDay,
+    location: p.direccion || '',
+    calendarName: 'Eventos La Fondiatta'
+  };
+
+  try {
+    let resp, text;
+    try {
+      resp = await fetch(config.sheetsUrl, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      text = await resp.text();
+    } catch(corsErr) {
+      btn.disabled = false; btn.textContent = '📅 Agendar en Eventos LF';
+      showToast('Error CORS conectando con Apps Script', true);
+      return;
+    }
+    let result;
+    try { result = JSON.parse(text); }
+    catch(e) {
+      btn.disabled = false; btn.textContent = '📅 Agendar en Eventos LF';
+      showToast('Respuesta inválida: ' + text.slice(0, 100), true);
+      return;
+    }
+    if (!result.success) {
+      btn.disabled = false; btn.textContent = '📅 Agendar en Eventos LF';
+      showToast('⚠️ ' + (result.error || 'Error desconocido'), true);
+      return;
+    }
+    // Éxito: cerrar modal + toast + abrir el evento creado
+    btn.disabled = false; btn.textContent = '📅 Agendar en Eventos LF';
+    showToast('✅ Evento creado en ' + (result.calendarName || 'Eventos LF'), false, 'success');
+    if (result.eventLink) window.open(result.eventLink, '_blank');
+    cerrarFichaCalendar();
+  } catch(e) {
+    btn.disabled = false; btn.textContent = '📅 Agendar en Eventos LF';
+    showToast('Error: ' + e.message, true);
+  }
 }
 
 async function copiarFichaCalendar() {
