@@ -1613,6 +1613,8 @@ async function generarResumen() {
 
 async function guardarPedidoCompleto(pedido) {
   const docId = await guardarPedidoEnFirebase(pedido);
+  // Propagar el _id de Firestore al objeto pedido (para que renderResumen lo tenga)
+  if (docId) pedido._id = docId;
   if (config && config.sheetsUrl) {
     showToast('📋 Enviando a Google Sheets...', false);
     const result = await enviarAGoogleSheets(pedido);
@@ -1622,6 +1624,7 @@ async function guardarPedidoCompleto(pedido) {
         try {
           const { updateDoc, doc } = window.firebaseFns;
           await updateDoc(doc(window.firebaseDB, 'pedidos', docId), { sheetNum: result.numPedido });
+          pedido.sheetNum = result.numPedido;
         } catch(e) { console.warn('No se pudo guardar sheetNum:', e); }
       }
       showToast('✅ Guardado en Firebase + Sheets (N° ' + (result.numPedido || '?') + ')', false, 'success');
@@ -1705,6 +1708,7 @@ function renderResumen(p) {
       <button class="btn btn-primary" onclick="descargarImagen()">📸 Descargar imagen</button>
       <button class="btn btn-success" onclick="compartirWhatsApp()">💬 WhatsApp</button>
     </div>
+    ${(p.estado && p.estado !== 'pagado' && p._id) ? `<button class="btn btn-meat" onclick="marcarPagado('${p._id}')" style="margin-top:10px;">💰 Marcar como pagado</button>` : ''}
     <button class="btn" onclick="agendarEnCalendarDesdeResumen()" style="margin-top:10px; background:#37474f; color:white;">📅 Agendar en Google Calendar</button>
     <button class="btn btn-add" onclick="volverAPedidos()" style="margin-top:10px;">➕ Cargar nuevo pedido</button>
   `;
