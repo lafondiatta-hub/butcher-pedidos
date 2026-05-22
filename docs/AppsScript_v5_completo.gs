@@ -26,6 +26,13 @@
 
 var HOJA_SALES = 'Sales';
 var HOJA_DETALLE = 'Detalle pedido';
+// ID del Sheet ACTIVO ("[The Butcher] Sales 2026"). El script v5 ya no usa
+// getActiveSpreadsheet() porque está bound al sheet VIEJO. Apunta acá.
+var SPREADSHEET_ID = '1sW7PVDAMaJQ56MoMEQXW-r4gLP-OT8Ka_mbcx3rHpX8';
+
+function getButcherSpreadsheet() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
 
 function doPost(e) {
   try {
@@ -92,7 +99,7 @@ function doGet(e) {
 // ACTUALIZAR PAGO (sin cambios respecto a v4)
 // ============================================================
 function actualizarPago(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getButcherSpreadsheet();
   var hoja = ss.getSheetByName(HOJA_SALES);
 
   if (!hoja) {
@@ -179,7 +186,7 @@ function actualizarPago(data) {
 // GUARDAR PEDIDO (sin cambios respecto a v4)
 // ============================================================
 function guardarPedido(pedido) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getButcherSpreadsheet();
   var hoja = ss.getSheetByName(HOJA_SALES);
 
   if (!hoja) {
@@ -274,7 +281,7 @@ function guardarPedido(pedido) {
 // Conserva el N° de pedido original (columna A).
 // ============================================================
 function editarPedido(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getButcherSpreadsheet();
   var hoja = ss.getSheetByName(HOJA_SALES);
 
   if (!hoja) {
@@ -655,7 +662,7 @@ function extraerPedido(data) {
 // GENERAR REPORTE MENSUAL (v5 — bug fix: filasTotal declarado)
 // ============================================================
 function generarReporteMensual(mes, anio) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getButcherSpreadsheet();
   var hoja = ss.getSheetByName(HOJA_SALES);
 
   if (!hoja) {
