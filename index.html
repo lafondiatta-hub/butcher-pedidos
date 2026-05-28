@@ -716,6 +716,45 @@ function getSheetsStatus() {
 }
 
 /* ============================================================
+ * Reconciliación: empuja a Sheets todos los cobros (pagado/parcial)
+ * de Firebase y actualiza las filas que sigan pendientes en la hoja.
+ * ============================================================ */
+async function sincronizarCobrosConSheets() {
+  if (!config || !config.sheetsUrl) { showToast('⚠️ Configurá la URL de Google Sheets primero', true); return; }
+  const cobros = pedidos
+    .filter(p => p.estado === 'pagado' || p.estado === 'parcial')
+    .map(p => ({
+      pedidoId: p.id || p._id,
+      cliente: p.cliente,
+      fecha: p.fecha,
+      estado: p.estado,
+      metodoPago: p.metodoPago || '',
+      fechaPago: p.fechaPago || ''
+    }));
+  if (!cobros.length) { showToast('No hay cobros para sincronizar', false); return; }
+
+  showToast('🔄 Sincronizando ' + cobros.length + ' cobros con Sheets...', false);
+  const payload = JSON.stringify({ action: 'sincronizarCobros', cobros });
+  let result;
+  try {
+    const resp = await fetch(config.sheetsUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload });
+    const text = await resp.text();
+    try { result = JSON.parse(text); } catch(e) { showToast('🔄 Enviado (sin confirmación). Revisá el Sheet en unos segundos.', false); return; }
+  } catch(err) {
+    try { await fetch(config.sheetsUrl, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); showToast('🔄 Enviado (no-cors). Revisá el Sheet en unos segundos.', false); return; }
+    catch(err2) { showToast('❌ No se pudo conectar con Sheets: ' + err2.message, true); return; }
+  }
+  if (result.success) {
+    showToast('✅ ' + (result.message || 'Cobros sincronizados'), false, 'success');
+    if (result.noEncontrados > 0 && Array.isArray(result.detalleNoEncontrados)) {
+      console.warn('Cobros no encontrados en Sheets:', result.detalleNoEncontrados);
+    }
+  } else {
+    showToast('❌ ' + (result.error || 'Error sincronizando cobros'), true);
+  }
+}
+
+/* ============================================================
  * EDICIÓN DE PEDIDO (Fase 1A): POST a Apps Script
  * Envía 'editarPedido' con clienteOriginal + fechaOriginal para
  * ubicar la fila exacta en Sheets y reescribirla con los datos nuevos.
@@ -1907,6 +1946,7 @@ function renderPedidos() {
       <div class="form-row-full"><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
       <div class="form-row-full"><label>Buscar cliente</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre"></div>
       <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-top:10px;border-left:3px solid var(--meat-red);"><div style="font-size:12px;color:#666;">Por cobrar</div><div style="font-size:20px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPC)}</div></div>
+      ${(config && config.sheetsUrl) ? `<button class="btn btn-secondary" onclick="sincronizarCobrosConSheets()" style="margin-top:10px;width:100%;">🔄 Sincronizar cobros con Sheets</button>` : ''}
     </div>
     <div class="card"><h2>📋 Pedidos (${pf.length})</h2>${pf.length===0?'<div class="cart-empty">Sin resultados</div>':pf.map(p => renderPedidoCard(p)).join('')}</div>
     <button class="btn btn-add" onclick="renderApp()" style="margin-top:10px;">← Volver</button>

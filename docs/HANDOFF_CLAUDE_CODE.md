@@ -48,6 +48,7 @@
 | Q | 17 | Confirmación de pago | "Pagado"/"Parcial"/"Pendiente" |
 | R | 18 | Stock | (vacío) |
 | S | 19 | Comentarios | items + horario + notas, separados por ` \| ` |
+| T | 20 | **ID App** (v5.2) | `pedido.id` ("PED-...") ← clave de match Firebase ↔ Sheets |
 
 > ⚠️ Los **items NO van en columna propia**: se guardan como TEXTO en la
 > columna S (Comentarios), con formato `Producto (1.250kg), Otro (2u) | ⏰ horario`.
@@ -77,6 +78,19 @@ en el front antes de abrir el modal de edición.
 > `numPedido`/`fila` y la app lo guarde en Firebase (`sheetRow`, `sheetNum`).
 > Así la edición sería por fila exacta y desaparecería el riesgo. No es
 > necesario para la v1.
+
+### ✅ v5.2 — Match por ID (resuelto)
+
+Ya **comparten un ID**: `guardarPedido` escribe `pedido.id` ("PED-...") en la
+**columna T (20, "ID App")**. El helper `buscarFilaPedido()` ubica la fila con
+esta prioridad: (1) ID de app, (2) cliente + fecha exacta, (3) cliente más
+reciente (fallback). Lo usan `actualizarPago`, `editarPedido` y la nueva acción
+`sincronizarCobros`. Las filas viejas sin ID se completan automáticamente (backfill)
+la primera vez que matchean por cliente+fecha.
+
+**`sincronizarCobros`** (reconciliación masiva): la app manda todos los pedidos
+`pagado`/`parcial` de Firebase y el script actualiza en Sales las filas que sigan
+pendientes. Botón "🔄 Sincronizar cobros con Sheets" en la vista Seguimiento.
 
 ---
 

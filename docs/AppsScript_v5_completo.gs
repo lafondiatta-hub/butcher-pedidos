@@ -30,8 +30,52 @@ var HOJA_DETALLE = 'Detalle pedido';
 // getActiveSpreadsheet() porque está bound al sheet VIEJO. Apunta acá.
 var SPREADSHEET_ID = '1sW7PVDAMaJQ56MoMEQXW-r4gLP-OT8Ka_mbcx3rHpX8';
 
+// Columna T (20): ID del pedido en la app (campo "id", ej "PED-...").
+// Permite matchear Firebase ↔ Sheets sin depender de cliente+fecha.
+var COL_ID_APP = 20;
+
 function getButcherSpreadsheet() {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+// Garantiza que la hoja tenga al menos la columna T (ID App) con encabezado.
+function asegurarColumnaId(hoja) {
+  if (hoja.getMaxColumns() < COL_ID_APP) {
+    hoja.insertColumnsAfter(hoja.getMaxColumns(), COL_ID_APP - hoja.getMaxColumns());
+  }
+  if (!hoja.getRange(1, COL_ID_APP).getValue()) {
+    hoja.getRange(1, COL_ID_APP).setValue('ID App');
+  }
+}
+
+// Ubica una fila de pedido dentro de `datos` (0-based) con esta prioridad:
+//   1) ID de app (col T) igual a pedidoId   ← match 100% confiable
+//   2) cliente + fecha exacta
+//   3) cliente más reciente (fallback si la fecha no calza)
+// `usados` (opcional) marca filas ya tomadas para no reusarlas en bulk.
+function buscarFilaPedido(datos, pedidoId, cliente, fechaBuscada, usados) {
+  usados = usados || {};
+  pedidoId = (pedidoId || '').toString().trim();
+  cliente = (cliente || '').toString().trim().toLowerCase();
+  fechaBuscada = (fechaBuscada || '').toString().trim();
+
+  if (pedidoId) {
+    for (var i = datos.length - 1; i >= 0; i--) {
+      if (usados[i]) continue;
+      if ((datos[i][COL_ID_APP - 1] || '').toString().trim() === pedidoId) return i;
+    }
+  }
+
+  if (!cliente) return -1;
+
+  var mejorMatch = -1;
+  for (var j = datos.length - 1; j >= 0; j--) {
+    if (usados[j]) continue;
+    if ((datos[j][5] || '').toString().trim().toLowerCase() !== cliente) continue;
+    if (fechaBuscada && normalizarFechaParaButcher(datos[j][2]) === fechaBuscada) return j;
+    if (mejorMatch === -1) mejorMatch = j;
+  }
+  return mejorMatch;
 }
 
 function doPost(e) {
@@ -47,6 +91,8 @@ function doPost(e) {
       result = guardarPedido(data.pedido);
     } else if (action === 'actualizarPago') {
       result = actualizarPago(data);
+    } else if (action === 'sincronizarCobros') {      // v5.2
+      result = sincronizarCobros(data);
     } else if (action === 'editarPedido') {           // v5
       result = editarPedido(data);
     } else if (action === 'extraerPedido') {          // v5
@@ -106,14 +152,17 @@ function actualizarPago(data) {
     return { success: false, error: 'No se encontró la pestaña "' + HOJA_SALES + '"' };
   }
 
-  var cliente = (data.cliente || '').toString().trim().toLowerCase();
+  asegurarColumnaId(hoja);
+
+  var cliente = (data.cliente || '').toString().trim();
   var fechaBuscada = (data.fecha || '').toString().trim();
+  var pedidoId = (data.pedidoId || '').toString().trim();
   var nuevoEstado = data.estado || 'Pagado';
   var metodoPago = data.metodoPago || '';
   var fechaPago = data.fechaPago || '';
 
-  if (!cliente) {
-    return { success: false, error: 'Falta el nombre del cliente' };
+  if (!cliente && !pedidoId) {
+    return { success: false, error: 'Falta el cliente o el ID del pedido' };
   }
 
   var ultimaFila = hoja.getLastRow();
@@ -121,48 +170,10 @@ function actualizarPago(data) {
     return { success: false, error: 'La hoja Sales está vacía' };
   }
 
-  var datos = hoja.getRange(2, 1, ultimaFila - 1, 19).getValues();
+  var datos = hoja.getRange(2, 1, ultimaFila - 1, COL_ID_APP).getValues();
+  var idx = buscarFilaPedido(datos, pedidoId, cliente, fechaBuscada);
 
-  var filaEncontrada = -1;
-  var mejorMatch = -1;
-
-  for (var i = datos.length - 1; i >= 0; i--) {
-    var clienteFila = (datos[i][5] || '').toString().trim().toLowerCase();
-    if (clienteFila !== cliente) continue;
-
-    if (fechaBuscada) {
-      var fechaFila = datos[i][2];
-      var fechaFilaStr = '';
-
-      if (fechaFila && typeof fechaFila === 'object' && typeof fechaFila.getFullYear === 'function') {
-        var y = fechaFila.getFullYear();
-        var m = String(fechaFila.getMonth() + 1).padStart(2, '0');
-        var d = String(fechaFila.getDate()).padStart(2, '0');
-        fechaFilaStr = y + '-' + m + '-' + d;
-      } else if (typeof fechaFila === 'string') {
-        var partes = fechaFila.split('/');
-        if (partes.length === 3) {
-          var anio = partes[2].length === 2 ? '20' + partes[2] : partes[2];
-          fechaFilaStr = anio + '-' + partes[1].padStart(2,'0') + '-' + partes[0].padStart(2,'0');
-        } else {
-          fechaFilaStr = fechaFila;
-        }
-      }
-
-      if (fechaFilaStr === fechaBuscada) {
-        filaEncontrada = i + 2;
-        break;
-      }
-    } else {
-      if (mejorMatch === -1) mejorMatch = i + 2;
-    }
-  }
-
-  if (filaEncontrada === -1 && mejorMatch !== -1) {
-    filaEncontrada = mejorMatch;
-  }
-
-  if (filaEncontrada === -1) {
+  if (idx === -1) {
     return {
       success: false,
       error: 'No se encontró el pedido de "' + data.cliente + '" en Sales.' +
@@ -170,14 +181,100 @@ function actualizarPago(data) {
     };
   }
 
+  var filaEncontrada = idx + 2;
   hoja.getRange(filaEncontrada, 17).setValue(nuevoEstado);
   if (metodoPago) hoja.getRange(filaEncontrada, 15).setValue(metodoPago);
   if (fechaPago) hoja.getRange(filaEncontrada, 16).setValue(fechaPago);
+  // Backfill del ID de app si la fila vieja no lo tenía → próximos matches por ID
+  if (pedidoId && !(datos[idx][COL_ID_APP - 1] || '').toString().trim()) {
+    hoja.getRange(filaEncontrada, COL_ID_APP).setValue(pedidoId);
+  }
 
   return {
     success: true,
     message: 'Pago actualizado: ' + data.cliente + ' → ' + nuevoEstado + ' (fila ' + filaEncontrada + ')',
     fila: filaEncontrada
+  };
+}
+
+
+// ============================================================
+// SINCRONIZAR COBROS (v5.2)
+// Reconciliación masiva: recibe TODOS los pedidos cobrados de la app
+// (pagado/parcial) y actualiza en Sales las filas que sigan pendientes.
+// Prioriza el match por ID de app; cae a cliente+fecha / cliente reciente.
+// data.cobros = [{ pedidoId, cliente, fecha, estado, metodoPago, fechaPago }]
+// ============================================================
+function sincronizarCobros(data) {
+  var ss = getButcherSpreadsheet();
+  var hoja = ss.getSheetByName(HOJA_SALES);
+
+  if (!hoja) {
+    return { success: false, error: 'No se encontró la pestaña "' + HOJA_SALES + '"' };
+  }
+
+  var cobros = data.cobros || [];
+  if (!cobros.length) {
+    return { success: true, actualizados: 0, sinCambios: 0, noEncontrados: 0,
+             detalleNoEncontrados: [], message: 'No hay cobros para sincronizar' };
+  }
+
+  asegurarColumnaId(hoja);
+
+  var ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) {
+    return { success: false, error: 'La hoja Sales está vacía' };
+  }
+
+  var datos = hoja.getRange(2, 1, ultimaFila - 1, COL_ID_APP).getValues();
+
+  var actualizados = 0, sinCambios = 0, noEncontrados = 0;
+  var detalleNoEncontrados = [];
+  var usados = {};
+
+  for (var c = 0; c < cobros.length; c++) {
+    var cob = cobros[c] || {};
+    var pedidoId = (cob.pedidoId || '').toString().trim();
+    var cliente = (cob.cliente || '').toString().trim();
+    var fecha = (cob.fecha || '').toString().trim();
+    var estado = cob.estado === 'parcial' ? 'Parcial' : 'Pagado';
+
+    var idx = buscarFilaPedido(datos, pedidoId, cliente, fecha, usados);
+    if (idx === -1) {
+      noEncontrados++;
+      detalleNoEncontrados.push(cob.cliente + (fecha ? (' (' + fecha + ')') : ''));
+      continue;
+    }
+    usados[idx] = true;
+
+    var fila = idx + 2;
+    var cambio = false;
+    if ((datos[idx][16] || '').toString().trim().toLowerCase() !== estado.toLowerCase()) {
+      hoja.getRange(fila, 17).setValue(estado);
+      cambio = true;
+    }
+    if (cob.metodoPago && (datos[idx][14] || '').toString().trim() !== cob.metodoPago) {
+      hoja.getRange(fila, 15).setValue(cob.metodoPago);
+      cambio = true;
+    }
+    if (cob.fechaPago && !(datos[idx][15] || '').toString().trim()) {
+      hoja.getRange(fila, 16).setValue(cob.fechaPago);
+      cambio = true;
+    }
+    if (pedidoId && !(datos[idx][COL_ID_APP - 1] || '').toString().trim()) {
+      hoja.getRange(fila, COL_ID_APP).setValue(pedidoId);
+    }
+    if (cambio) actualizados++; else sinCambios++;
+  }
+
+  return {
+    success: true,
+    actualizados: actualizados,
+    sinCambios: sinCambios,
+    noEncontrados: noEncontrados,
+    detalleNoEncontrados: detalleNoEncontrados,
+    message: 'Sincronización: ' + actualizados + ' actualizados, ' +
+             sinCambios + ' ya estaban al día, ' + noEncontrados + ' no encontrados'
   };
 }
 
@@ -264,6 +361,9 @@ function guardarPedido(pedido) {
   hoja.getRange(filaDestino, 2).setNumberFormat('dd/MM/yyyy');
   hoja.getRange(filaDestino, 3).setNumberFormat('dd/MM/yyyy');
   hoja.getRange(filaDestino, 4).setNumberFormat('dd/MM/yyyy');
+  // ID de app en col T → permite ubicar la fila luego sin depender de cliente+fecha
+  asegurarColumnaId(hoja);
+  if (pedido.id) hoja.getRange(filaDestino, COL_ID_APP).setValue(pedido.id);
 
   return {
     success: true,
@@ -293,11 +393,14 @@ function editarPedido(data) {
     return { success: false, error: 'Falta el objeto pedido' };
   }
 
-  var clienteOrig = (data.clienteOriginal || pedido.cliente || '').toString().trim().toLowerCase();
-  var fechaOrig = (data.fechaOriginal || pedido.fecha || '').toString().trim();
+  asegurarColumnaId(hoja);
 
-  if (!clienteOrig) {
-    return { success: false, error: 'Falta el cliente original para ubicar el pedido' };
+  var clienteOrig = (data.clienteOriginal || pedido.cliente || '').toString().trim();
+  var fechaOrig = (data.fechaOriginal || pedido.fecha || '').toString().trim();
+  var pedidoId = (pedido.id || '').toString().trim();
+
+  if (!clienteOrig && !pedidoId) {
+    return { success: false, error: 'Falta el cliente original o el ID para ubicar el pedido' };
   }
 
   var ultimaFila = hoja.getLastRow();
@@ -305,35 +408,19 @@ function editarPedido(data) {
     return { success: false, error: 'La hoja Sales está vacía' };
   }
 
-  var datos = hoja.getRange(2, 1, ultimaFila - 1, 19).getValues();
+  var datos = hoja.getRange(2, 1, ultimaFila - 1, COL_ID_APP).getValues();
+  var idx = buscarFilaPedido(datos, pedidoId, clienteOrig, fechaOrig);
 
-  var filaEncontrada = -1;
-  var numPedidoExistente = 0;
-  for (var i = datos.length - 1; i >= 0; i--) {
-    var clienteFila = (datos[i][5] || '').toString().trim().toLowerCase();
-    if (clienteFila !== clienteOrig) continue;
-
-    if (fechaOrig) {
-      var fechaFilaStr = normalizarFechaParaButcher(datos[i][2]);
-      if (fechaFilaStr === fechaOrig) {
-        filaEncontrada = i + 2;
-        numPedidoExistente = parseInt(datos[i][0]) || 0;
-        break;
-      }
-    } else {
-      filaEncontrada = i + 2;
-      numPedidoExistente = parseInt(datos[i][0]) || 0;
-      break;
-    }
-  }
-
-  if (filaEncontrada === -1) {
+  if (idx === -1) {
     return {
       success: false,
       error: 'No se encontró el pedido de "' + (data.clienteOriginal || pedido.cliente) +
              '" para editar. Puede haberse guardado con otro nombre o fecha.'
     };
   }
+
+  var filaEncontrada = idx + 2;
+  var numPedidoExistente = parseInt(datos[idx][0]) || 0;
 
   var fechaPedido = new Date(pedido.fecha);
   var mesVenta = new Date(fechaPedido.getFullYear(), fechaPedido.getMonth(), 1);
@@ -400,6 +487,7 @@ function editarPedido(data) {
   hoja.getRange(filaEncontrada, 2).setNumberFormat('dd/MM/yyyy');
   hoja.getRange(filaEncontrada, 3).setNumberFormat('dd/MM/yyyy');
   hoja.getRange(filaEncontrada, 4).setNumberFormat('dd/MM/yyyy');
+  if (pedidoId) hoja.getRange(filaEncontrada, COL_ID_APP).setValue(pedidoId);
 
   return {
     success: true,
