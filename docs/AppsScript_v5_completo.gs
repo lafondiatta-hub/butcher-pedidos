@@ -47,6 +47,8 @@ function doPost(e) {
       result = guardarPedido(data.pedido);
     } else if (action === 'actualizarPago') {
       result = actualizarPago(data);
+    } else if (action === 'sincronizarCobros') {      // v5.2 (reconciliación masiva)
+      result = sincronizarCobros(data);
     } else if (action === 'editarPedido') {           // v5
       result = editarPedido(data);
     } else if (action === 'extraerPedido') {          // v5
@@ -190,6 +192,102 @@ function actualizarPago(data) {
     success: true,
     message: 'Pago actualizado: ' + data.cliente + ' → ' + nuevoEstado + ' (fila ' + filaEncontrada + ')',
     fila: filaEncontrada
+  };
+}
+
+
+// ============================================================
+// SINCRONIZAR COBROS (v5.2)
+// Reconciliación masiva: recibe TODOS los pedidos cobrados de la app
+// (pagado/parcial) y actualiza en Sales las filas que sigan pendientes.
+// Match por sheetNum (col A) → fallback cliente+fecha.
+// data.cobros = [{ sheetNum, cliente, fecha, estado, metodoPago, fechaPago }]
+// ============================================================
+function sincronizarCobros(data) {
+  var ss = getButcherSpreadsheet();
+  var hoja = ss.getSheetByName(HOJA_SALES);
+  if (!hoja) {
+    return { success: false, error: 'No se encontró la pestaña "' + HOJA_SALES + '"' };
+  }
+
+  var cobros = data.cobros || [];
+  if (!cobros.length) {
+    return { success: true, actualizados: 0, sinCambios: 0, noEncontrados: 0,
+             detalleNoEncontrados: [], message: 'No hay cobros para sincronizar' };
+  }
+
+  var ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) {
+    return { success: false, error: 'La hoja Sales está vacía' };
+  }
+
+  var datos = hoja.getRange(2, 1, ultimaFila - 1, 19).getValues();
+
+  var actualizados = 0, sinCambios = 0, noEncontrados = 0;
+  var detalleNoEncontrados = [];
+  var usados = {};
+
+  for (var c = 0; c < cobros.length; c++) {
+    var cob = cobros[c] || {};
+    var sheetNum = parseInt(cob.sheetNum) || 0;
+    var cliente = (cob.cliente || '').toString().trim().toLowerCase();
+    var fechaBuscada = (cob.fecha || '').toString().trim();
+    var estado = cob.estado === 'parcial' ? 'Parcial' : 'Pagado';
+
+    var idx = -1;
+
+    // PRIORIDAD 1: match por N° (col A)
+    if (sheetNum > 0) {
+      for (var k = 0; k < datos.length; k++) {
+        if (usados[k]) continue;
+        if ((parseInt(datos[k][0]) || 0) === sheetNum) { idx = k; break; }
+      }
+    }
+
+    // PRIORIDAD 2: fallback cliente + fecha exacta → cliente más reciente
+    if (idx === -1 && cliente) {
+      var mejor = -1;
+      for (var j = datos.length - 1; j >= 0; j--) {
+        if (usados[j]) continue;
+        if ((datos[j][5] || '').toString().trim().toLowerCase() !== cliente) continue;
+        if (fechaBuscada && normalizarFechaParaButcher(datos[j][2]) === fechaBuscada) { idx = j; break; }
+        if (mejor === -1) mejor = j;
+      }
+      if (idx === -1) idx = mejor;
+    }
+
+    if (idx === -1) {
+      noEncontrados++;
+      detalleNoEncontrados.push(cob.cliente + (fechaBuscada ? (' (' + fechaBuscada + ')') : ''));
+      continue;
+    }
+    usados[idx] = true;
+
+    var fila = idx + 2;
+    var cambio = false;
+    if ((datos[idx][16] || '').toString().trim().toLowerCase() !== estado.toLowerCase()) {
+      hoja.getRange(fila, 17).setValue(estado);
+      cambio = true;
+    }
+    if (cob.metodoPago && (datos[idx][14] || '').toString().trim() !== cob.metodoPago) {
+      hoja.getRange(fila, 15).setValue(cob.metodoPago);
+      cambio = true;
+    }
+    if (cob.fechaPago && !(datos[idx][15] || '').toString().trim()) {
+      hoja.getRange(fila, 16).setValue(cob.fechaPago);
+      cambio = true;
+    }
+    if (cambio) actualizados++; else sinCambios++;
+  }
+
+  return {
+    success: true,
+    actualizados: actualizados,
+    sinCambios: sinCambios,
+    noEncontrados: noEncontrados,
+    detalleNoEncontrados: detalleNoEncontrados,
+    message: 'Sincronización: ' + actualizados + ' actualizados, ' +
+             sinCambios + ' ya estaban al día, ' + noEncontrados + ' no encontrados'
   };
 }
 
