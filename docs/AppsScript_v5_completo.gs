@@ -197,6 +197,41 @@ function actualizarPago(data) {
 
 
 // ============================================================
+// FORMATO CONDICIONAL POR ESTADO DE PAGO (v5.2)
+// Pinta la fila entera (A:S) según col Q ("Confirmación de pago").
+// Idempotente: si las reglas ya están, no las duplica.
+// ============================================================
+function asegurarFormatoCondicional(hoja) {
+  var marcadores = ['=$Q2="Pagado"', '=$Q2="Parcial"', '=$Q2="Pendiente"'];
+  var reglas = hoja.getConditionalFormatRules().filter(function(r) {
+    var bc = r.getBooleanCondition && r.getBooleanCondition();
+    if (!bc) return true;
+    var vals = bc.getCriteriaValues && bc.getCriteriaValues();
+    return !vals || !vals.length || marcadores.indexOf(vals[0]) === -1;
+  });
+
+  var ultimaFila = Math.max(hoja.getMaxRows(), 1000);
+  var rango = hoja.getRange('A2:S' + ultimaFila);
+
+  reglas.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(marcadores[0])
+      .setBackground('#d9ead3') // verde suave → Pagado
+      .setRanges([rango]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(marcadores[1])
+      .setBackground('#fff2cc') // amarillo suave → Parcial
+      .setRanges([rango]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(marcadores[2])
+      .setBackground('#f4cccc') // rojo suave → Pendiente
+      .setRanges([rango]).build()
+  );
+  hoja.setConditionalFormatRules(reglas);
+}
+
+
+// ============================================================
 // SINCRONIZAR COBROS (v5.2)
 // Reconciliación masiva: recibe TODOS los pedidos cobrados de la app
 // (pagado/parcial) y actualiza en Sales las filas que sigan pendientes.
@@ -209,6 +244,7 @@ function sincronizarCobros(data) {
   if (!hoja) {
     return { success: false, error: 'No se encontró la pestaña "' + HOJA_SALES + '"' };
   }
+  asegurarFormatoCondicional(hoja);
 
   var cobros = data.cobros || [];
   if (!cobros.length) {
@@ -374,6 +410,7 @@ function guardarPedido(pedido) {
   hoja.getRange(filaDestino, 2).setNumberFormat('dd/MM/yyyy');
   hoja.getRange(filaDestino, 3).setNumberFormat('dd/MM/yyyy');
   hoja.getRange(filaDestino, 4).setNumberFormat('dd/MM/yyyy');
+  asegurarFormatoCondicional(hoja);
 
   return {
     success: true,
