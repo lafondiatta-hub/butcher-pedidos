@@ -1011,6 +1011,7 @@ function renderApp() {
       <div class="menu-buttons">
         <button class="btn btn-secondary" onclick="abrirConfig()">⚙️ Configuración</button>
         <button class="btn btn-secondary" onclick="actualizarPrecios()">🔄 Actualizar precios</button>
+        <button class="btn btn-secondary" onclick="renderReportes()">📊 Reportes</button>
         <button class="btn btn-secondary" onclick="exportarPedidosExcel()">📊 Exportar a Excel</button>
         <button class="btn btn-secondary" onclick="abrirReporte()">📊 Reporte mensual</button>
       </div>
@@ -1998,6 +1999,204 @@ function renderPedidos() {
     </div>
     <div class="card"><h2>📋 Pedidos (${pf.length})</h2>${pf.length===0?'<div class="cart-empty">Sin resultados</div>':pf.map(p => renderPedidoCard(p)).join('')}</div>
     <button class="btn btn-add" onclick="renderApp()" style="margin-top:10px;">← Volver</button>
+  `;
+  window.scrollTo(0, 0);
+}
+
+/* ============================================================
+ * VISTA REPORTES — 4 secciones que computan sobre pedidos/clientes
+ * en memoria. Sin dependencias externas, gráficos con divs CSS.
+ * ============================================================ */
+function renderReportes() {
+  document.getElementById('app').setAttribute('data-vista', 'reportes');
+  const ahora = new Date();
+  const mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
+
+  // ---- 1) Top cortes del mes ----
+  const mesPedidos = pedidos.filter(p => {
+    if (!p.fecha) return false;
+    const f = new Date(p.fecha);
+    return f.getMonth() === mesAct && f.getFullYear() === anioAct;
+  });
+  const cortes = {};
+  mesPedidos.forEach(p => (p.items || []).forEach(it => {
+    const key = it.producto + (it.variante ? ' [' + it.variante + ']' : '');
+    if (!cortes[key]) cortes[key] = { kg: 0, unidades: 0, facturado: 0, vecesPedido: 0 };
+    if (it.tipo === 'kg') cortes[key].kg += parseFloat(it.pesoOCantidad) || 0;
+    else cortes[key].unidades += parseFloat(it.pesoOCantidad) || 0;
+    cortes[key].facturado += parseFloat(it.subtotal) || 0;
+    cortes[key].vecesPedido += 1;
+  }));
+  const topCortes = Object.entries(cortes)
+    .map(([nombre, d]) => ({ nombre, ...d }))
+    .sort((a, b) => b.facturado - a.facturado)
+    .slice(0, 10);
+  const totalFactMes = topCortes.reduce((s, c) => s + c.facturado, 0) ||
+                       Object.values(cortes).reduce((s, c) => s + c.facturado, 0) || 1;
+  const cortesHTML = topCortes.length === 0
+    ? '<div class="cart-empty">Sin ventas este mes</div>'
+    : topCortes.map((c, i) => {
+        const pct = (c.facturado / totalFactMes) * 100;
+        const cant = c.kg > 0 ? c.kg.toFixed(3) + ' kg' : c.unidades + ' u';
+        return `<div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
+            <span><b>${i+1}.</b> ${escapeHtml(c.nombre)} <span style="color:#666;font-size:11px;">· ${cant} · ${c.vecesPedido}x</span></span>
+            <span style="font-weight:700;color:var(--navy);">$${formatNum(c.facturado)}</span>
+          </div>
+          <div style="background:#eee;border-radius:4px;height:6px;overflow:hidden;">
+            <div style="background:var(--meat-red);height:100%;width:${pct.toFixed(1)}%;"></div>
+          </div>
+        </div>`;
+      }).join('');
+
+  // ---- 2) Mensual (últimos 6 meses) ----
+  const meses = [];
+  for (let k = 5; k >= 0; k--) {
+    const d = new Date(anioAct, mesAct - k, 1);
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    meses.push({ key, label: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][d.getMonth()] + ' ' + String(d.getFullYear()).slice(2),
+                 count: 0, bruto: 0, cobrado: 0 });
+  }
+  const mesIdx = Object.fromEntries(meses.map((m, i) => [m.key, i]));
+  pedidos.forEach(p => {
+    if (!p.fecha) return;
+    const f = new Date(p.fecha);
+    const k = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0');
+    if (mesIdx[k] === undefined) return;
+    const m = meses[mesIdx[k]];
+    m.count += 1;
+    m.bruto += parseFloat(p.totalFinal) || 0;
+    const estado = p.estado || 'pendiente';
+    if (estado === 'pagado') m.cobrado += parseFloat(p.totalFinal) || 0;
+    else if (estado === 'parcial') m.cobrado += parseFloat(p.montoParcial) || 0;
+  });
+  const maxBruto = Math.max(1, ...meses.map(m => m.bruto));
+  const mensualHTML = meses.map(m => {
+    const pBruto = (m.bruto / maxBruto) * 100;
+    const pCobrado = m.bruto > 0 ? (m.cobrado / m.bruto) * 100 : 0;
+    const ticket = m.count > 0 ? m.bruto / m.count : 0;
+    return `<div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+        <span><b>${m.label}</b> <span style="color:#666;font-size:11px;">· ${m.count} ped${m.count!==1?'s':''} · prom $${formatNum(ticket)}</span></span>
+        <span style="font-size:12px;"><b style="color:var(--navy);">$${formatNum(m.bruto)}</b> <span style="color:#2e7d32;">· cobrado $${formatNum(m.cobrado)}</span></span>
+      </div>
+      <div style="background:#eee;border-radius:4px;height:10px;overflow:hidden;position:relative;">
+        <div style="background:var(--navy);height:100%;width:${pBruto.toFixed(1)}%;"></div>
+        <div style="background:#2e7d32;height:100%;width:${(pBruto * pCobrado / 100).toFixed(1)}%;position:absolute;top:0;left:0;"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ---- 3) Top clientes ----
+  const cli = (clientes || []).slice()
+    .filter(c => (c.totalGastado || 0) > 0)
+    .sort((a, b) => (b.totalGastado || 0) - (a.totalGastado || 0))
+    .slice(0, 15);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const clientesHTML = cli.length === 0
+    ? '<div class="cart-empty">Sin clientes con ventas</div>'
+    : cli.map((c, i) => {
+        let diasDesde = null, tag = '', tagColor = '';
+        if (c.ultimoPedido) {
+          const u = new Date(c.ultimoPedido); u.setHours(0,0,0,0);
+          diasDesde = Math.floor((hoy - u) / 86400000);
+          if (diasDesde >= 90) { tag = '⚠️ Perdido'; tagColor = '#c62828'; }
+          else if (diasDesde >= 60) { tag = '⏳ En riesgo'; tagColor = '#e65100'; }
+        }
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 8px;border-bottom:1px solid #f0f0f0;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:var(--navy);font-size:14px;">${i+1}. ${escapeHtml(c.nombre)} ${tag?`<span style="font-size:10px;font-weight:700;color:${tagColor};margin-left:4px;">${tag}</span>`:''}</div>
+            <div style="font-size:11px;color:#666;">${c.cantPedidos||0} pedido${(c.cantPedidos||0)!==1?'s':''}${diasDesde!==null?` · último hace ${diasDesde}d`:''}</div>
+          </div>
+          <div style="font-weight:700;color:var(--navy);font-size:14px;">$${formatNum(c.totalGastado||0)}</div>
+        </div>`;
+      }).join('');
+
+  // ---- 4) Cobranzas ----
+  const cobranzas = pedidos
+    .filter(p => (p.estado || 'pendiente') !== 'pagado')
+    .map(p => {
+      const f = p.fecha ? new Date(p.fecha) : null;
+      if (f) f.setHours(0,0,0,0);
+      const dias = f ? Math.floor((hoy - f) / 86400000) : 0;
+      const pendiente = (parseFloat(p.totalFinal) || 0) - (parseFloat(p.montoParcial) || 0);
+      return { p, dias, pendiente };
+    })
+    .filter(x => x.pendiente > 0)
+    .sort((a, b) => b.dias - a.dias);
+  const totalPorCobrar = cobranzas.reduce((s, x) => s + x.pendiente, 0);
+  const buckets = { '0-30': { count: 0, monto: 0 }, '31-60': { count: 0, monto: 0 }, '60+': { count: 0, monto: 0 } };
+  cobranzas.forEach(x => {
+    const k = x.dias <= 30 ? '0-30' : x.dias <= 60 ? '31-60' : '60+';
+    buckets[k].count += 1;
+    buckets[k].monto += x.pendiente;
+  });
+  const bucketsHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+      <div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:10px;border-radius:6px;">
+        <div style="font-size:11px;color:#666;">0-30 días</div>
+        <div style="font-weight:700;color:#1b5e20;">$${formatNum(buckets['0-30'].monto)}</div>
+        <div style="font-size:10px;color:#555;">${buckets['0-30'].count} pedido${buckets['0-30'].count!==1?'s':''}</div>
+      </div>
+      <div style="background:#fff3e0;border-left:3px solid #f57c00;padding:10px;border-radius:6px;">
+        <div style="font-size:11px;color:#666;">31-60 días</div>
+        <div style="font-weight:700;color:#e65100;">$${formatNum(buckets['31-60'].monto)}</div>
+        <div style="font-size:10px;color:#555;">${buckets['31-60'].count} pedido${buckets['31-60'].count!==1?'s':''}</div>
+      </div>
+      <div style="background:#ffebee;border-left:3px solid #c62828;padding:10px;border-radius:6px;">
+        <div style="font-size:11px;color:#666;">60+ días</div>
+        <div style="font-weight:700;color:#b71c1c;">$${formatNum(buckets['60+'].monto)}</div>
+        <div style="font-size:10px;color:#555;">${buckets['60+'].count} pedido${buckets['60+'].count!==1?'s':''}</div>
+      </div>
+    </div>`;
+  const cobranzasHTML = cobranzas.length === 0
+    ? '<div class="cart-empty">No hay pedidos pendientes 🎉</div>'
+    : bucketsHTML + cobranzas.slice(0, 20).map(x => {
+        const colorDias = x.dias > 60 ? '#c62828' : x.dias > 30 ? '#e65100' : '#2e7d32';
+        const estado = x.p.estado === 'parcial' ? '💵 Parcial' : '⏳ Pendiente';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 8px;border-bottom:1px solid #f0f0f0;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:var(--navy);font-size:13px;">${escapeHtml(x.p.cliente)} <span style="font-size:10px;font-weight:700;color:#666;">${estado}</span></div>
+            <div style="font-size:11px;color:${colorDias};font-weight:600;">hace ${x.dias} día${x.dias!==1?'s':''} · ${formatFecha(x.p.fecha)}</div>
+          </div>
+          <div style="font-weight:700;color:var(--meat-red);font-size:14px;">$${formatNum(x.pendiente)}</div>
+        </div>`;
+      }).join('') + (cobranzas.length > 20 ? `<div style="font-size:11px;color:#666;text-align:center;padding:8px;">y ${cobranzas.length - 20} más...</div>` : '');
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <button class="btn-back" onclick="renderApp()">← Volver</button>
+      <button class="btn-home" onclick="irAInicio()">🏠 Inicio</button>
+      <img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo">
+      <p>Reportes</p>
+    </div>
+
+    <div class="card">
+      <h2>🥩 Top cortes del mes</h2>
+      <div style="font-size:11px;color:#666;margin-bottom:10px;">${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][mesAct]} ${anioAct} · ${mesPedidos.length} pedido${mesPedidos.length!==1?'s':''}</div>
+      ${cortesHTML}
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>📈 Últimos 6 meses</h2>
+      <div style="font-size:11px;color:#666;margin-bottom:10px;"><span style="display:inline-block;width:10px;height:10px;background:var(--navy);border-radius:2px;vertical-align:middle;"></span> Facturado &nbsp;·&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#2e7d32;border-radius:2px;vertical-align:middle;"></span> Cobrado</div>
+      ${mensualHTML}
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>👥 Top clientes</h2>
+      ${clientesHTML}
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>💰 Cobranzas pendientes</h2>
+      <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-bottom:12px;border-left:3px solid var(--meat-red);">
+        <div style="font-size:12px;color:#666;">Total por cobrar</div>
+        <div style="font-size:22px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPorCobrar)}</div>
+        <div style="font-size:11px;color:#666;">${cobranzas.length} pedido${cobranzas.length!==1?'s':''}</div>
+      </div>
+      ${cobranzasHTML}
+    </div>
   `;
   window.scrollTo(0, 0);
 }
