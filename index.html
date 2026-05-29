@@ -101,6 +101,12 @@ body {
   cursor: pointer; font-family: inherit; transition: all 0.15s;
 }
 .btn-back:hover { background: rgba(255,255,255,0.25); }
+.btn-periodo { padding: 6px 14px; border: 1px solid #ccc; background: white; border-radius: 16px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--navy); font-family: inherit; transition: all 0.15s; }
+.btn-periodo:hover { background: var(--cream); }
+.btn-periodo.activo { background: var(--navy); color: white; border-color: var(--navy); }
+.btn-periodo.activo:hover { background: var(--navy); }
+.cliente-clickable { cursor: pointer; transition: background 0.1s; }
+.cliente-clickable:hover { background: #fafafa; }
 .card {
   background: white;
   border-radius: var(--radius);
@@ -2004,22 +2010,68 @@ function renderPedidos() {
 }
 
 /* ============================================================
- * VISTA REPORTES — 4 secciones que computan sobre pedidos/clientes
- * en memoria. Sin dependencias externas, gráficos con divs CSS.
+ * VISTA REPORTES — Dashboard interactivo con filtros de período,
+ * top cortes / mensual / clientes / frecuentes / cobranzas, y
+ * drill-down al hacer click en un cliente.
  * ============================================================ */
+let _reportePeriodo = 'mes_actual'; // 'mes_actual' | 'anio' | 'todo'
+let _reporteAnio = new Date().getFullYear();
+let _clienteExpandido = null;
+
+function setReportePeriodo(p, anio) {
+  _reportePeriodo = p;
+  if (typeof anio === 'number') _reporteAnio = anio;
+  _clienteExpandido = null;
+  renderReportes();
+}
+
+function toggleClienteExpandido(nombre) {
+  _clienteExpandido = (_clienteExpandido === nombre) ? null : nombre;
+  renderReportes();
+}
+
+function _aniosConPedidos() {
+  const set = new Set();
+  pedidos.forEach(p => { if (p.fecha) set.add(new Date(p.fecha).getFullYear()); });
+  return Array.from(set).sort((a, b) => b - a);
+}
+
 function renderReportes() {
   document.getElementById('app').setAttribute('data-vista', 'reportes');
   const ahora = new Date();
   const mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
+  const periodo = _reportePeriodo, anioSel = _reporteAnio;
+  const MESES_LARGOS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-  // ---- 1) Top cortes del mes ----
-  const mesPedidos = pedidos.filter(p => {
+  // ---- Filtrado por período ----
+  const pedidosFiltrados = pedidos.filter(p => {
     if (!p.fecha) return false;
     const f = new Date(p.fecha);
-    return f.getMonth() === mesAct && f.getFullYear() === anioAct;
+    if (periodo === 'mes_actual') return f.getMonth() === mesAct && f.getFullYear() === anioAct;
+    if (periodo === 'anio') return f.getFullYear() === anioSel;
+    return true;
   });
+  const labelPeriodo =
+    periodo === 'mes_actual' ? `${MESES_LARGOS[mesAct]} ${anioAct}` :
+    periodo === 'anio' ? `Año ${anioSel}` :
+    'Histórico completo';
+
+  // ---- Selector de período ----
+  const aniosDisp = _aniosConPedidos();
+  const selectorHTML = `
+    <div class="card">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
+        <button class="btn-periodo ${periodo==='mes_actual'?'activo':''}" onclick="setReportePeriodo('mes_actual')">Mes actual</button>
+        ${aniosDisp.map(a => `<button class="btn-periodo ${(periodo==='anio'&&anioSel===a)?'activo':''}" onclick="setReportePeriodo('anio', ${a})">${a}</button>`).join('')}
+        <button class="btn-periodo ${periodo==='todo'?'activo':''}" onclick="setReportePeriodo('todo')">Todo</button>
+      </div>
+      <div style="text-align:center;font-size:12px;color:#666;margin-top:8px;">${labelPeriodo} · ${pedidosFiltrados.length} pedido${pedidosFiltrados.length!==1?'s':''}${periodo!=='mes_actual'?` · facturado $${formatNum(pedidosFiltrados.reduce((s,p)=>s+(parseFloat(p.totalFinal)||0),0))}`:''}</div>
+    </div>`;
+
+  // ---- 1) Top cortes ----
   const cortes = {};
-  mesPedidos.forEach(p => (p.items || []).forEach(it => {
+  pedidosFiltrados.forEach(p => (p.items || []).forEach(it => {
     const key = it.producto + (it.variante ? ' [' + it.variante + ']' : '');
     if (!cortes[key]) cortes[key] = { kg: 0, unidades: 0, facturado: 0, vecesPedido: 0 };
     if (it.tipo === 'kg') cortes[key].kg += parseFloat(it.pesoOCantidad) || 0;
@@ -2031,12 +2083,11 @@ function renderReportes() {
     .map(([nombre, d]) => ({ nombre, ...d }))
     .sort((a, b) => b.facturado - a.facturado)
     .slice(0, 10);
-  const totalFactMes = topCortes.reduce((s, c) => s + c.facturado, 0) ||
-                       Object.values(cortes).reduce((s, c) => s + c.facturado, 0) || 1;
+  const totalFactCortes = Object.values(cortes).reduce((s, c) => s + c.facturado, 0) || 1;
   const cortesHTML = topCortes.length === 0
-    ? '<div class="cart-empty">Sin ventas este mes</div>'
+    ? '<div class="cart-empty">Sin ventas en este período</div>'
     : topCortes.map((c, i) => {
-        const pct = (c.facturado / totalFactMes) * 100;
+        const pct = (c.facturado / totalFactCortes) * 100;
         const cant = c.kg > 0 ? c.kg.toFixed(3) + ' kg' : c.unidades + ' u';
         return `<div style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
@@ -2049,36 +2100,45 @@ function renderReportes() {
         </div>`;
       }).join('');
 
-  // ---- 2) Mensual (últimos 6 meses) ----
-  const meses = [];
-  for (let k = 5; k >= 0; k--) {
-    const d = new Date(anioAct, mesAct - k, 1);
-    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-    meses.push({ key, label: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][d.getMonth()] + ' ' + String(d.getFullYear()).slice(2),
-                 count: 0, bruto: 0, cobrado: 0 });
+  // ---- 2) Mensual (12 meses si periodo=anio; sino últimos 6 meses) ----
+  let meses;
+  if (periodo === 'anio') {
+    meses = [];
+    for (let m = 0; m < 12; m++) {
+      meses.push({ key: anioSel + '-' + String(m+1).padStart(2,'0'),
+                   label: MESES_CORTOS[m], count: 0, bruto: 0, cobrado: 0 });
+    }
+  } else {
+    meses = [];
+    for (let k = 5; k >= 0; k--) {
+      const d = new Date(anioAct, mesAct - k, 1);
+      meses.push({ key: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'),
+                   label: MESES_CORTOS[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2),
+                   count: 0, bruto: 0, cobrado: 0 });
+    }
   }
   const mesIdx = Object.fromEntries(meses.map((m, i) => [m.key, i]));
   pedidos.forEach(p => {
     if (!p.fecha) return;
     const f = new Date(p.fecha);
-    const k = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0');
+    const k = f.getFullYear() + '-' + String(f.getMonth()+1).padStart(2,'0');
     if (mesIdx[k] === undefined) return;
     const m = meses[mesIdx[k]];
     m.count += 1;
     m.bruto += parseFloat(p.totalFinal) || 0;
-    const estado = p.estado || 'pendiente';
-    if (estado === 'pagado') m.cobrado += parseFloat(p.totalFinal) || 0;
-    else if (estado === 'parcial') m.cobrado += parseFloat(p.montoParcial) || 0;
+    const est = p.estado || 'pendiente';
+    if (est === 'pagado') m.cobrado += parseFloat(p.totalFinal) || 0;
+    else if (est === 'parcial') m.cobrado += parseFloat(p.montoParcial) || 0;
   });
   const maxBruto = Math.max(1, ...meses.map(m => m.bruto));
   const mensualHTML = meses.map(m => {
     const pBruto = (m.bruto / maxBruto) * 100;
     const pCobrado = m.bruto > 0 ? (m.cobrado / m.bruto) * 100 : 0;
     const ticket = m.count > 0 ? m.bruto / m.count : 0;
-    return `<div style="margin-bottom:14px;">
+    return `<div style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
-        <span><b>${m.label}</b> <span style="color:#666;font-size:11px;">· ${m.count} ped${m.count!==1?'s':''} · prom $${formatNum(ticket)}</span></span>
-        <span style="font-size:12px;"><b style="color:var(--navy);">$${formatNum(m.bruto)}</b> <span style="color:#2e7d32;">· cobrado $${formatNum(m.cobrado)}</span></span>
+        <span><b>${m.label}</b> <span style="color:#666;font-size:11px;">· ${m.count} ped · prom $${formatNum(ticket)}</span></span>
+        <span style="font-size:12px;"><b style="color:var(--navy);">$${formatNum(m.bruto)}</b> <span style="color:#2e7d32;">· $${formatNum(m.cobrado)}</span></span>
       </div>
       <div style="background:#eee;border-radius:4px;height:10px;overflow:hidden;position:relative;">
         <div style="background:var(--navy);height:100%;width:${pBruto.toFixed(1)}%;"></div>
@@ -2086,33 +2146,60 @@ function renderReportes() {
       </div>
     </div>`;
   }).join('');
+  const totalAnio = meses.reduce((s,m) => s+m.bruto, 0);
+  const totalCobradoAnio = meses.reduce((s,m) => s+m.cobrado, 0);
+  const mensualResumen = periodo === 'anio' ? `<div style="background:#f5f5f5;padding:10px;border-radius:6px;margin-bottom:14px;font-size:13px;text-align:center;"><b style="color:var(--navy);">Facturado ${anioSel}:</b> $${formatNum(totalAnio)} · <span style="color:#2e7d32;"><b>Cobrado:</b> $${formatNum(totalCobradoAnio)}</span> (${totalAnio>0?Math.round(totalCobradoAnio/totalAnio*100):0}%)</div>` : '';
 
-  // ---- 3) Top clientes ----
-  const cli = (clientes || []).slice()
-    .filter(c => (c.totalGastado || 0) > 0)
-    .sort((a, b) => (b.totalGastado || 0) - (a.totalGastado || 0))
-    .slice(0, 15);
+  // ---- 3 y 4) Top clientes (por facturación + por frecuencia) ----
+  const statsCliente = {};
+  pedidosFiltrados.forEach(p => {
+    const k = p.cliente || '?';
+    if (!statsCliente[k]) statsCliente[k] = { nombre: k, facturado: 0, count: 0, ultimo: null };
+    statsCliente[k].facturado += parseFloat(p.totalFinal) || 0;
+    statsCliente[k].count += 1;
+    if (p.fecha) {
+      const fp = new Date(p.fecha);
+      if (!statsCliente[k].ultimo || fp > statsCliente[k].ultimo) statsCliente[k].ultimo = fp;
+    }
+  });
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const clientesHTML = cli.length === 0
-    ? '<div class="cart-empty">Sin clientes con ventas</div>'
-    : cli.map((c, i) => {
-        let diasDesde = null, tag = '', tagColor = '';
-        if (c.ultimoPedido) {
-          const u = new Date(c.ultimoPedido); u.setHours(0,0,0,0);
-          diasDesde = Math.floor((hoy - u) / 86400000);
-          if (diasDesde >= 90) { tag = '⚠️ Perdido'; tagColor = '#c62828'; }
-          else if (diasDesde >= 60) { tag = '⏳ En riesgo'; tagColor = '#e65100'; }
-        }
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 8px;border-bottom:1px solid #f0f0f0;">
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;color:var(--navy);font-size:14px;">${i+1}. ${escapeHtml(c.nombre)} ${tag?`<span style="font-size:10px;font-weight:700;color:${tagColor};margin-left:4px;">${tag}</span>`:''}</div>
-            <div style="font-size:11px;color:#666;">${c.cantPedidos||0} pedido${(c.cantPedidos||0)!==1?'s':''}${diasDesde!==null?` · último hace ${diasDesde}d`:''}</div>
-          </div>
-          <div style="font-weight:700;color:var(--navy);font-size:14px;">$${formatNum(c.totalGastado||0)}</div>
-        </div>`;
-      }).join('');
+  const arrCli = Object.values(statsCliente);
+  const topPorFact = arrCli.slice().sort((a,b) => b.facturado - a.facturado).slice(0, 15);
+  const topPorFrec = arrCli.slice().sort((a,b) => b.count - a.count || b.facturado - a.facturado).slice(0, 15);
 
-  // ---- 4) Cobranzas ----
+  function renderClienteFila(c, i, mostrarFrec) {
+    let diasDesde = null, tag = '', tagColor = '';
+    if (c.ultimo) {
+      const u = new Date(c.ultimo); u.setHours(0,0,0,0);
+      diasDesde = Math.floor((hoy - u) / 86400000);
+      if (diasDesde >= 90) { tag = '⚠️ Perdido'; tagColor = '#c62828'; }
+      else if (diasDesde >= 60) { tag = '⏳ En riesgo'; tagColor = '#e65100'; }
+    }
+    const detalle = _clienteExpandido === c.nombre ? renderClienteDetalle(c.nombre) : '';
+    const expandIcon = _clienteExpandido === c.nombre ? '▼' : '▶';
+    const valorDer = mostrarFrec
+      ? `<div style="text-align:right;"><div style="font-weight:700;color:var(--navy);font-size:15px;">${c.count}</div><div style="font-size:10px;color:#666;">pedido${c.count!==1?'s':''}</div></div>`
+      : `<div style="font-weight:700;color:var(--navy);font-size:14px;">$${formatNum(c.facturado)}</div>`;
+    return `<div>
+      <div class="cliente-clickable" style="display:flex;justify-content:space-between;align-items:center;padding:10px 8px;border-bottom:1px solid #f0f0f0;" onclick="toggleClienteExpandido('${c.nombre.replace(/'/g, "\\'")}')">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;color:var(--navy);font-size:14px;"><span style="color:#999;font-size:11px;">${expandIcon}</span> ${i+1}. ${escapeHtml(c.nombre)} ${tag?`<span style="font-size:10px;font-weight:700;color:${tagColor};margin-left:4px;">${tag}</span>`:''}</div>
+          <div style="font-size:11px;color:#666;">${mostrarFrec ? `$${formatNum(c.facturado)}` : `${c.count} pedido${c.count!==1?'s':''}`}${diasDesde!==null?` · último hace ${diasDesde}d`:''}</div>
+        </div>
+        ${valorDer}
+      </div>
+      ${detalle}
+    </div>`;
+  }
+
+  const clientesHTML = topPorFact.length === 0
+    ? '<div class="cart-empty">Sin clientes con ventas</div>'
+    : topPorFact.map((c, i) => renderClienteFila(c, i, false)).join('');
+  const frecuentesHTML = topPorFrec.length === 0
+    ? '<div class="cart-empty">Sin actividad</div>'
+    : topPorFrec.map((c, i) => renderClienteFila(c, i, true)).join('');
+
+  // ---- 5) Cobranzas (siempre histórico — no respeta el filtro de período) ----
   const cobranzas = pedidos
     .filter(p => (p.estado || 'pendiente') !== 'pagado')
     .map(p => {
@@ -2171,25 +2258,36 @@ function renderReportes() {
       <p>Reportes</p>
     </div>
 
-    <div class="card">
-      <h2>🥩 Top cortes del mes</h2>
-      <div style="font-size:11px;color:#666;margin-bottom:10px;">${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][mesAct]} ${anioAct} · ${mesPedidos.length} pedido${mesPedidos.length!==1?'s':''}</div>
+    ${selectorHTML}
+
+    <div class="card" style="margin-top:14px;">
+      <h2>🥩 Top cortes</h2>
+      <div style="font-size:11px;color:#666;margin-bottom:10px;">${labelPeriodo}</div>
       ${cortesHTML}
     </div>
 
     <div class="card" style="margin-top:14px;">
-      <h2>📈 Últimos 6 meses</h2>
+      <h2>📈 ${periodo==='anio'?`Mes a mes ${anioSel}`:'Últimos 6 meses'}</h2>
       <div style="font-size:11px;color:#666;margin-bottom:10px;"><span style="display:inline-block;width:10px;height:10px;background:var(--navy);border-radius:2px;vertical-align:middle;"></span> Facturado &nbsp;·&nbsp; <span style="display:inline-block;width:10px;height:10px;background:#2e7d32;border-radius:2px;vertical-align:middle;"></span> Cobrado</div>
+      ${mensualResumen}
       ${mensualHTML}
     </div>
 
     <div class="card" style="margin-top:14px;">
-      <h2>👥 Top clientes</h2>
+      <h2>👥 Top clientes <span style="font-size:11px;color:#666;font-weight:400;">por facturación</span></h2>
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">Tocá un cliente para ver su historial completo</div>
       ${clientesHTML}
     </div>
 
     <div class="card" style="margin-top:14px;">
+      <h2>🔁 Clientes más frecuentes <span style="font-size:11px;color:#666;font-weight:400;">por cantidad de pedidos</span></h2>
+      <div style="font-size:11px;color:#666;margin-bottom:8px;">Tocá un cliente para ver su historial completo</div>
+      ${frecuentesHTML}
+    </div>
+
+    <div class="card" style="margin-top:14px;">
       <h2>💰 Cobranzas pendientes</h2>
+      <div style="font-size:11px;color:#666;margin-bottom:10px;">Histórico (no filtra por período)</div>
       <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-bottom:12px;border-left:3px solid var(--meat-red);">
         <div style="font-size:12px;color:#666;">Total por cobrar</div>
         <div style="font-size:22px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPorCobrar)}</div>
@@ -2199,6 +2297,30 @@ function renderReportes() {
     </div>
   `;
   window.scrollTo(0, 0);
+}
+
+function renderClienteDetalle(nombre) {
+  const histo = pedidos
+    .filter(p => p.cliente === nombre)
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+    .slice(0, 10);
+  if (!histo.length) return '';
+  return `<div style="background:#f9f9f9;padding:10px 14px;border-left:3px solid var(--navy);">
+    <div style="font-size:11px;color:#666;margin-bottom:8px;font-weight:600;">Últimos ${histo.length} pedido${histo.length!==1?'s':''}:</div>
+    ${histo.map(p => {
+      const est = p.estado || 'pendiente';
+      const color = est === 'pagado' ? '#2e7d32' : est === 'parcial' ? '#f9a825' : '#f57c00';
+      const icon = est === 'pagado' ? '✅' : est === 'parcial' ? '💵' : '⏳';
+      const items = (p.items || []).slice(0, 3).map(i => i.producto).join(', ') + ((p.items || []).length > 3 ? '...' : '');
+      return `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:12px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span><span style="color:${color};">${icon}</span> ${formatFecha(p.fecha)} ${p.sheetNum?`<span style="font-size:10px;color:#666;">#${p.sheetNum}</span>`:''}</span>
+          <span style="font-weight:600;color:var(--navy);">$${formatNum(p.totalFinal||0)}</span>
+        </div>
+        ${items?`<div style="font-size:10px;color:#888;margin-top:2px;">${escapeHtml(items)}</div>`:''}
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
 function pedidoEsBorrador(p) {
