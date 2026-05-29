@@ -763,7 +763,11 @@ async function sincronizarCobrosConSheets(opts) {
     if (silencioso) {
       if (result.actualizados > 0) showToast('🔄 Auto-sync: ' + result.actualizados + ' fila' + (result.actualizados!==1?'s':'') + ' actualizada' + (result.actualizados!==1?'s':'') + ' en Sheets', false);
     } else {
-      showToast('✅ ' + (result.message || 'Cobros sincronizados'), false, 'success');
+      let msg = '✅ ' + (result.message || 'Cobros sincronizados');
+      if (result.noEncontrados > 0 && Array.isArray(result.detalleNoEncontrados) && result.detalleNoEncontrados.length) {
+        msg += '\nNo encontrados: ' + result.detalleNoEncontrados.slice(0, 3).join(', ') + (result.detalleNoEncontrados.length > 3 ? '...' : '');
+      }
+      showToast(msg, result.noEncontrados > 0, result.noEncontrados > 0 ? '' : 'success');
     }
     if (result.noEncontrados > 0 && Array.isArray(result.detalleNoEncontrados)) {
       console.warn('Cobros no encontrados en Sheets:', result.detalleNoEncontrados);
@@ -2246,28 +2250,17 @@ async function confirmarCobro() {
   try {
     const { updateDoc, doc } = window.firebaseFns;
     await updateDoc(doc(window.firebaseDB, 'pedidos', pedidoIdCobro), upd);
+    cerrarModalCobro();
+    showToast('✅ Cobro registrado · sincronizando Sheets...', false, 'success');
 
-    // ============================================================
-    // CAMBIO 1: Sincronizar estado de pago con Google Sheets
-    // ============================================================
+    // Sheets en background — no bloquea el cierre del modal
     if (config && config.sheetsUrl) {
       const pedActualizado = { ...ped, ...upd };
-      const sheetsResult = await actualizarPagoEnSheets(
-        pedActualizado,
-        upd.estado,
-        metodo,
-        fecha
-      );
-      if (sheetsResult.success) {
-        showToast('✅ Cobro registrado · Sheets actualizado', false, 'success');
-      } else {
-        showToast('✅ Cobro en Firebase · ⚠️ Sheets: ' + (sheetsResult.error || 'sin confirmar'), true);
-      }
-    } else {
-      showToast('✅ Cobro registrado', false, 'success');
+      actualizarPagoEnSheets(pedActualizado, upd.estado, metodo, fecha).then(r => {
+        if (r && r.success) showToast('✅ Sheets actualizado (fila ' + (r.fila||'?') + ')', false, 'success');
+        else showToast('⚠️ Sheets: ' + ((r && r.error) || 'sin confirmar'), true);
+      });
     }
-
-    cerrarModalCobro();
   } catch(e) { showToast('Error: '+e.message, true); }
 }
 
@@ -2276,12 +2269,12 @@ async function marcarPendiente(id) {
   try {
     const { updateDoc, doc } = window.firebaseFns;
     await updateDoc(doc(window.firebaseDB, 'pedidos', id), { estado: 'pendiente', metodoPago: '', fechaPago: '' });
-    // CAMBIO 1: también actualizar en Sheets al revertir
+    showToast('↩️ Revertido', false, 'success');
+    // Sheets en background
     if (config && config.sheetsUrl) {
       const ped = pedidos.find(p => p._id === id);
-      if (ped) await actualizarPagoEnSheets(ped, 'pendiente', '', '');
+      if (ped) actualizarPagoEnSheets(ped, 'pendiente', '', '');
     }
-    showToast('↩️ Revertido', false, 'success');
   } catch(e) { showToast('Error: '+e.message, true); }
 }
 
