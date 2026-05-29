@@ -630,6 +630,7 @@ async function iniciarApp() {
     suscribirseACambios();
     if (productos.length === 0 || !config) renderSetup();
     else renderApp();
+    iniciarAutoSyncCobros();
   } catch (err) {
     console.error('Error iniciando:', err);
     document.getElementById('app').innerHTML = `
@@ -728,8 +729,10 @@ function getSheetsStatus() {
  * de Firebase y actualiza las filas que sigan pendientes en la hoja.
  * Match por sheetNum (col A) → fallback cliente+fecha en el backend.
  * ============================================================ */
-async function sincronizarCobrosConSheets() {
-  if (!config || !config.sheetsUrl) { showToast('⚠️ Configurá la URL de Google Sheets primero', true); return; }
+async function sincronizarCobrosConSheets(opts) {
+  opts = opts || {};
+  const silencioso = !!opts.silencioso;
+  if (!config || !config.sheetsUrl) { if (!silencioso) showToast('⚠️ Configurá la URL de Google Sheets primero', true); return; }
   const cobros = pedidos
     .filter(p => p.estado === 'pagado' || p.estado === 'parcial')
     .map(p => ({
@@ -740,27 +743,45 @@ async function sincronizarCobrosConSheets() {
       metodoPago: p.metodoPago || '',
       fechaPago: p.fechaPago || ''
     }));
-  if (!cobros.length) { showToast('No hay cobros para sincronizar', false); return; }
+  if (!cobros.length) { if (!silencioso) showToast('No hay cobros para sincronizar', false); return; }
 
-  showToast('🔄 Sincronizando ' + cobros.length + ' cobros con Sheets...', false);
+  if (!silencioso) showToast('🔄 Sincronizando ' + cobros.length + ' cobros con Sheets...', false);
   const payload = JSON.stringify({ action: 'sincronizarCobros', cobros });
   let result;
   try {
     const resp = await fetch(config.sheetsUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload });
     const text = await resp.text();
-    try { result = JSON.parse(text); } catch(e) { showToast('🔄 Enviado (sin confirmación). Revisá el Sheet en unos segundos.', false); return; }
+    try { result = JSON.parse(text); } catch(e) { if (!silencioso) showToast('🔄 Enviado (sin confirmación). Revisá el Sheet en unos segundos.', false); return; }
   } catch(err) {
-    try { await fetch(config.sheetsUrl, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); showToast('✅ ' + cobros.length + ' cobros enviados. En unos segundos el Sheet refleja los cambios.', false, 'success'); return; }
-    catch(err2) { showToast('❌ No se pudo conectar con Sheets: ' + err2.message, true); return; }
+    try {
+      await fetch(config.sheetsUrl, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload });
+      if (!silencioso) showToast('✅ ' + cobros.length + ' cobros enviados. En unos segundos el Sheet refleja los cambios.', false, 'success');
+      return;
+    } catch(err2) { if (!silencioso) showToast('❌ No se pudo conectar con Sheets: ' + err2.message, true); return; }
   }
   if (result.success) {
-    showToast('✅ ' + (result.message || 'Cobros sincronizados'), false, 'success');
+    if (silencioso) {
+      if (result.actualizados > 0) showToast('🔄 Auto-sync: ' + result.actualizados + ' fila' + (result.actualizados!==1?'s':'') + ' actualizada' + (result.actualizados!==1?'s':'') + ' en Sheets', false);
+    } else {
+      showToast('✅ ' + (result.message || 'Cobros sincronizados'), false, 'success');
+    }
     if (result.noEncontrados > 0 && Array.isArray(result.detalleNoEncontrados)) {
       console.warn('Cobros no encontrados en Sheets:', result.detalleNoEncontrados);
     }
   } else {
-    showToast('❌ ' + (result.error || 'Error sincronizando cobros'), true);
+    if (!silencioso) showToast('❌ ' + (result.error || 'Error sincronizando cobros'), true);
   }
+}
+
+/* Auto-sync cada hora mientras la app esté abierta. */
+let _autoSyncId = null;
+function iniciarAutoSyncCobros() {
+  if (_autoSyncId) return;
+  _autoSyncId = setInterval(() => {
+    if (config && config.sheetsUrl && pedidos.length) {
+      sincronizarCobrosConSheets({ silencioso: true });
+    }
+  }, 60 * 60 * 1000);
 }
 
 /* ============================================================
