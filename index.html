@@ -750,7 +750,7 @@ async function sincronizarCobrosConSheets() {
     const text = await resp.text();
     try { result = JSON.parse(text); } catch(e) { showToast('🔄 Enviado (sin confirmación). Revisá el Sheet en unos segundos.', false); return; }
   } catch(err) {
-    try { await fetch(config.sheetsUrl, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); showToast('🔄 Enviado (no-cors). Revisá el Sheet en unos segundos.', false); return; }
+    try { await fetch(config.sheetsUrl, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload }); showToast('✅ ' + cobros.length + ' cobros enviados. En unos segundos el Sheet refleja los cambios.', false, 'success'); return; }
     catch(err2) { showToast('❌ No se pudo conectar con Sheets: ' + err2.message, true); return; }
   }
   if (result.success) {

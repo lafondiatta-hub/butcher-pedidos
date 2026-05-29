@@ -144,6 +144,10 @@ function actualizarPago(data) {
     var clienteFila = (datos[i][5] || '').toString().trim().toLowerCase();
     if (clienteFila !== cliente) continue;
 
+    // Siempre trackear el más reciente del cliente como fallback,
+    // así si la fecha no calza exacto igual se ubica la fila.
+    if (mejorMatch === -1) mejorMatch = i + 2;
+
     if (fechaBuscada) {
       var fechaFila = datos[i][2];
       var fechaFilaStr = '';
@@ -167,8 +171,6 @@ function actualizarPago(data) {
         filaEncontrada = i + 2;
         break;
       }
-    } else {
-      if (mejorMatch === -1) mejorMatch = i + 2;
     }
   }
 
@@ -469,10 +471,16 @@ function editarPedido(data) {
     return { success: false, error: 'Falta sheetNum o cliente original para ubicar el pedido' };
   }
 
-  // PRIORIDAD 2 (fallback): cliente + fecha
+  // PRIORIDAD 2 (fallback): cliente + fecha exacta → cliente más reciente
+  var mejorFilaCliente = -1, mejorNumCliente = 0;
   if (filaEncontrada === -1) for (var i = datos.length - 1; i >= 0; i--) {
     var clienteFila = (datos[i][5] || '').toString().trim().toLowerCase();
     if (clienteFila !== clienteOrig) continue;
+
+    if (mejorFilaCliente === -1) {
+      mejorFilaCliente = i + 2;
+      mejorNumCliente = parseInt(datos[i][0]) || 0;
+    }
 
     if (fechaOrig) {
       var fechaFilaStr = normalizarFechaParaButcher(datos[i][2]);
@@ -486,6 +494,11 @@ function editarPedido(data) {
       numPedidoExistente = parseInt(datos[i][0]) || 0;
       break;
     }
+  }
+
+  if (filaEncontrada === -1 && mejorFilaCliente !== -1) {
+    filaEncontrada = mejorFilaCliente;
+    numPedidoExistente = mejorNumCliente;
   }
 
   if (filaEncontrada === -1) {
