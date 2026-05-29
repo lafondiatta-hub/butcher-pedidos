@@ -2014,8 +2014,9 @@ function renderPedidos() {
  * top cortes / mensual / clientes / frecuentes / cobranzas, y
  * drill-down al hacer click en un cliente.
  * ============================================================ */
-let _reportePeriodo = 'mes_actual'; // 'mes_actual' | 'anio' | 'todo'
+let _reportePeriodo = 'mes_actual'; // 'mes_actual' | 'anio' | 'mes' | 'todo'
 let _reporteAnio = new Date().getFullYear();
+let _reporteMes = null; // 0..11 cuando periodo === 'mes'
 let _clienteExpandido = null;
 let _pedidosSheet = null;       // cache de pedidos del Sheet (histórico)
 let _pedidosSheetCargando = false;
@@ -2064,18 +2065,28 @@ async function cargarPedidosSheet() {
   if (app && app.getAttribute('data-vista') === 'reportes') renderReportes();
 }
 
-/* Combina Firebase + Sheet, dedup por sheetNum. Firebase gana cuando hay match. */
+/* Combina Firebase + Sheet, dedup por sheetNum y por cliente+fecha
+ * (para pedidos viejos de Firebase que aún no tienen sheetNum). */
 function pedidosCombinados() {
   if (!_pedidosSheet || !_pedidosSheet.length) return pedidos;
   const fbSheetNums = new Set(pedidos.map(p => p.sheetNum).filter(Boolean));
+  const fbClienteFecha = new Set(pedidos
+    .filter(p => p.cliente && p.fecha)
+    .map(p => p.cliente.trim().toLowerCase() + '|' + p.fecha));
   const soloSheet = _pedidosSheet
-    .filter(s => s.sheetNum && !fbSheetNums.has(s.sheetNum))
+    .filter(s => {
+      if (s.sheetNum && fbSheetNums.has(s.sheetNum)) return false;
+      const key = (s.cliente || '').trim().toLowerCase() + '|' + (s.fecha || '');
+      if (fbClienteFecha.has(key)) return false;
+      return true;
+    })
     .map(s => {
       const estLow = (s.estado || '').toLowerCase();
+      const uid = s.sheetNum || 'r' + s.sheetRow;
       return {
-        _id: 'sheet-' + s.sheetNum,
-        id: 'SHEET-' + s.sheetNum,
-        sheetNum: s.sheetNum,
+        _id: 'sheet-' + uid,
+        id: 'SHEET-' + uid,
+        sheetNum: s.sheetNum || null,
         fecha: s.fecha,
         fechaEntrega: s.fechaEntrega || s.fecha,
         cliente: s.cliente,
@@ -2093,9 +2104,11 @@ function pedidosCombinados() {
   return pedidos.concat(soloSheet);
 }
 
-function setReportePeriodo(p, anio) {
+function setReportePeriodo(p, anio, mes) {
   _reportePeriodo = p;
   if (typeof anio === 'number') _reporteAnio = anio;
+  if (typeof mes === 'number') _reporteMes = mes;
+  else if (p !== 'mes') _reporteMes = null;
   _clienteExpandido = null;
   renderReportes();
 }
@@ -2124,27 +2137,37 @@ function renderReportes() {
   const fuente = pedidosCombinados();
 
   // ---- Filtrado por período ----
+  const mesSel = _reporteMes;
   const pedidosFiltrados = fuente.filter(p => {
     if (!p.fecha) return false;
     const f = new Date(p.fecha);
     if (periodo === 'mes_actual') return f.getMonth() === mesAct && f.getFullYear() === anioAct;
     if (periodo === 'anio') return f.getFullYear() === anioSel;
+    if (periodo === 'mes') return f.getFullYear() === anioSel && f.getMonth() === mesSel;
     return true;
   });
   const labelPeriodo =
     periodo === 'mes_actual' ? `${MESES_LARGOS[mesAct]} ${anioAct}` :
     periodo === 'anio' ? `Año ${anioSel}` :
+    periodo === 'mes' ? `${MESES_LARGOS[mesSel]} ${anioSel}` :
     'Histórico completo';
 
   // ---- Selector de período ----
   const aniosDisp = _aniosConPedidos();
+  const mostrarMeses = (periodo === 'anio' || periodo === 'mes');
+  const mesesChips = mostrarMeses ? `
+      <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-top:8px;padding-top:8px;border-top:1px solid #eee;">
+        <button class="btn-periodo ${periodo==='anio'?'activo':''}" style="font-size:11px;padding:4px 10px;" onclick="setReportePeriodo('anio', ${anioSel})">Todo ${anioSel}</button>
+        ${MESES_CORTOS.map((mc, idx) => `<button class="btn-periodo ${(periodo==='mes'&&mesSel===idx)?'activo':''}" style="font-size:11px;padding:4px 10px;" onclick="setReportePeriodo('mes', ${anioSel}, ${idx})">${mc}</button>`).join('')}
+      </div>` : '';
   const selectorHTML = `
     <div class="card">
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
         <button class="btn-periodo ${periodo==='mes_actual'?'activo':''}" onclick="setReportePeriodo('mes_actual')">Mes actual</button>
-        ${aniosDisp.map(a => `<button class="btn-periodo ${(periodo==='anio'&&anioSel===a)?'activo':''}" onclick="setReportePeriodo('anio', ${a})">${a}</button>`).join('')}
+        ${aniosDisp.map(a => `<button class="btn-periodo ${((periodo==='anio'||periodo==='mes')&&anioSel===a)?'activo':''}" onclick="setReportePeriodo('anio', ${a})">${a}</button>`).join('')}
         <button class="btn-periodo ${periodo==='todo'?'activo':''}" onclick="setReportePeriodo('todo')">Todo</button>
       </div>
+      ${mesesChips}
       <div style="text-align:center;font-size:12px;color:#666;margin-top:8px;">${labelPeriodo} · ${pedidosFiltrados.length} pedido${pedidosFiltrados.length!==1?'s':''}${periodo!=='mes_actual'?` · facturado $${formatNum(pedidosFiltrados.reduce((s,p)=>s+(parseFloat(p.totalFinal)||0),0))}`:''}</div>
       <div style="text-align:center;font-size:11px;margin-top:4px;color:${_pedidosSheetCargando?'#1565c0':(_pedidosSheetError?'#c62828':'#888')};">
         ${_pedidosSheetCargando ? '⏳ Cargando histórico del Sheet...' :
