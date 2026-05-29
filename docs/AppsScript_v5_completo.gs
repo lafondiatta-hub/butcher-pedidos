@@ -82,43 +82,6 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  if (action === 'debugCliente') {
-    var ss = getButcherSpreadsheet();
-    var hoja = ss.getSheetByName(HOJA_SALES);
-    var ult = hoja.getLastRow();
-    var datos = hoja.getRange(2, 1, ult - 1, 19).getValues();
-    var q = (e.parameter.q || '').toString().trim().toLowerCase();
-    var fecha = (e.parameter.fecha || '').toString().trim();
-    var hits = [];
-    for (var i = 0; i < datos.length; i++) {
-      var cli = (datos[i][5] || '').toString().trim().toLowerCase();
-      if (q && cli.indexOf(q) === -1) continue;
-      hits.push({
-        sheetRow: i + 2,
-        numA: datos[i][0],
-        fechaRaw: String(datos[i][2]),
-        fechaNorm: normalizarFechaParaButcher(datos[i][2]),
-        clienteRaw: datos[i][5],
-        clienteNorm: cli,
-        clienteEq: q ? (cli === q) : null,
-        fechaEq: fecha ? (normalizarFechaParaButcher(datos[i][2]) === fecha) : null,
-        colO: datos[i][14],
-        colP: String(datos[i][15]),
-        colQ: datos[i][16]
-      });
-    }
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        success: true,
-        query: { q: q, fecha: fecha },
-        sheetTz: ss.getSpreadsheetTimeZone(),
-        scriptTz: Session.getScriptTimeZone(),
-        total: hits.length,
-        hits: hits
-      }, null, 2))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
   if (action === 'generarReporteMensual') {
     var mes = parseInt(e.parameter.mes);
     var anio = parseInt(e.parameter.anio);
