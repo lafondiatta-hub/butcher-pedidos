@@ -2018,6 +2018,8 @@ let _reportePeriodo = 'mes_actual'; // 'mes_actual' | 'anio' | 'mes' | 'todo'
 let _reporteAnio = new Date().getFullYear();
 let _reporteMes = null; // 0..11 cuando periodo === 'mes'
 let _clienteExpandido = null;
+let _reporteVerTodo = { cortes: false, clientes: false, frecuentes: false, cobranzas: false };
+function toggleVerTodo(seccion) { _reporteVerTodo[seccion] = !_reporteVerTodo[seccion]; renderReportes(); }
 let _pedidosSheet = null;       // cache de pedidos del Sheet (histórico)
 let _pedidosSheetCargando = false;
 let _pedidosSheetError = null;
@@ -2187,10 +2189,10 @@ function renderReportes() {
     cortes[key].facturado += parseFloat(it.subtotal) || 0;
     cortes[key].vecesPedido += 1;
   }));
-  const topCortes = Object.entries(cortes)
+  const topCortesAll = Object.entries(cortes)
     .map(([nombre, d]) => ({ nombre, ...d }))
-    .sort((a, b) => b.facturado - a.facturado)
-    .slice(0, 10);
+    .sort((a, b) => b.facturado - a.facturado);
+  const topCortes = _reporteVerTodo.cortes ? topCortesAll : topCortesAll.slice(0, 10);
   const totalFactCortes = Object.values(cortes).reduce((s, c) => s + c.facturado, 0) || 1;
   const cortesHTML = topCortes.length === 0
     ? '<div class="cart-empty">Sin ventas en este período</div>'
@@ -2272,8 +2274,10 @@ function renderReportes() {
   });
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const arrCli = Object.values(statsCliente);
-  const topPorFact = arrCli.slice().sort((a,b) => b.facturado - a.facturado).slice(0, 15);
-  const topPorFrec = arrCli.slice().sort((a,b) => b.count - a.count || b.facturado - a.facturado).slice(0, 15);
+  const topPorFactAll = arrCli.slice().sort((a,b) => b.facturado - a.facturado);
+  const topPorFrecAll = arrCli.slice().sort((a,b) => b.count - a.count || b.facturado - a.facturado);
+  const topPorFact = _reporteVerTodo.clientes ? topPorFactAll : topPorFactAll.slice(0, 15);
+  const topPorFrec = _reporteVerTodo.frecuentes ? topPorFrecAll : topPorFrecAll.slice(0, 15);
 
   function renderClienteFila(c, i, mostrarFrec) {
     let diasDesde = null, tag = '', tagColor = '';
@@ -2346,7 +2350,7 @@ function renderReportes() {
     </div>`;
   const cobranzasHTML = cobranzas.length === 0
     ? '<div class="cart-empty">No hay pedidos pendientes 🎉</div>'
-    : bucketsHTML + cobranzas.slice(0, 20).map(x => {
+    : bucketsHTML + (_reporteVerTodo.cobranzas ? cobranzas : cobranzas.slice(0, 20)).map(x => {
         const colorDias = x.dias > 60 ? '#c62828' : x.dias > 30 ? '#e65100' : '#2e7d32';
         const estado = x.p.estado === 'parcial' ? '💵 Parcial' : '⏳ Pendiente';
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 8px;border-bottom:1px solid #f0f0f0;">
@@ -2356,7 +2360,7 @@ function renderReportes() {
           </div>
           <div style="font-weight:700;color:var(--meat-red);font-size:14px;">$${formatNum(x.pendiente)}</div>
         </div>`;
-      }).join('') + (cobranzas.length > 20 ? `<div style="font-size:11px;color:#666;text-align:center;padding:8px;">y ${cobranzas.length - 20} más...</div>` : '');
+      }).join('') + (cobranzas.length > 20 ? `<button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:12px;" onclick="toggleVerTodo('cobranzas')">${_reporteVerTodo.cobranzas ? '▲ Ver menos' : `▼ Ver todas (${cobranzas.length})`}</button>` : '');
 
   document.getElementById('app').innerHTML = `
     <div class="header">
@@ -2372,6 +2376,7 @@ function renderReportes() {
       <h2>🥩 Top cortes</h2>
       <div style="font-size:11px;color:#666;margin-bottom:10px;">${labelPeriodo}</div>
       ${cortesHTML}
+      ${topCortesAll.length > 10 ? `<button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:12px;" onclick="toggleVerTodo('cortes')">${_reporteVerTodo.cortes ? '▲ Ver menos' : `▼ Ver todos (${topCortesAll.length})`}</button>` : ''}
     </div>
 
     <div class="card" style="margin-top:14px;">
@@ -2385,12 +2390,14 @@ function renderReportes() {
       <h2>👥 Top clientes <span style="font-size:11px;color:#666;font-weight:400;">por facturación</span></h2>
       <div style="font-size:11px;color:#666;margin-bottom:8px;">Tocá un cliente para ver su historial completo</div>
       ${clientesHTML}
+      ${topPorFactAll.length > 15 ? `<button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:12px;" onclick="toggleVerTodo('clientes')">${_reporteVerTodo.clientes ? '▲ Ver menos' : `▼ Ver todos (${topPorFactAll.length})`}</button>` : ''}
     </div>
 
     <div class="card" style="margin-top:14px;">
       <h2>🔁 Clientes más frecuentes <span style="font-size:11px;color:#666;font-weight:400;">por cantidad de pedidos</span></h2>
       <div style="font-size:11px;color:#666;margin-bottom:8px;">Tocá un cliente para ver su historial completo</div>
       ${frecuentesHTML}
+      ${topPorFrecAll.length > 15 ? `<button class="btn btn-secondary" style="margin-top:8px;width:100%;font-size:12px;" onclick="toggleVerTodo('frecuentes')">${_reporteVerTodo.frecuentes ? '▲ Ver menos' : `▼ Ver todos (${topPorFrecAll.length})`}</button>` : ''}
     </div>
 
     <div class="card" style="margin-top:14px;">
