@@ -82,6 +82,42 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (action === 'getReporteData') {
+    var ss = getButcherSpreadsheet();
+    var hoja = ss.getSheetByName(HOJA_SALES);
+    if (!hoja) return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: 'No existe la hoja ' + HOJA_SALES }))
+      .setMimeType(ContentService.MimeType.JSON);
+    var ult = hoja.getLastRow();
+    if (ult < 2) return ContentService
+      .createTextOutput(JSON.stringify({ success: true, pedidos: [] }))
+      .setMimeType(ContentService.MimeType.JSON);
+    var datos = hoja.getRange(2, 1, ult - 1, 19).getValues();
+    var out = [];
+    for (var i = 0; i < datos.length; i++) {
+      var row = datos[i];
+      var cliente = (row[5] || '').toString().trim();
+      if (!cliente) continue;
+      out.push({
+        sheetNum: parseInt(row[0]) || null,
+        sheetRow: i + 2,
+        fecha: normalizarFechaParaButcher(row[2]),
+        fechaEntrega: normalizarFechaParaButcher(row[3]),
+        vendedor: (row[4] || '').toString(),
+        cliente: cliente,
+        tipoEnvio: (row[8] || '').toString(),
+        totalFinal: parseFloat(row[13]) || 0,
+        metodoPago: (row[14] || '').toString(),
+        fechaPago: normalizarFechaParaButcher(row[15]),
+        estado: (row[16] || '').toString().trim() || 'Pendiente',
+        itemsTexto: (row[18] || '').toString()
+      });
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, total: out.length, pedidos: out }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === 'generarReporteMensual') {
     var mes = parseInt(e.parameter.mes);
     var anio = parseInt(e.parameter.anio);

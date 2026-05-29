@@ -2017,6 +2017,81 @@ function renderPedidos() {
 let _reportePeriodo = 'mes_actual'; // 'mes_actual' | 'anio' | 'todo'
 let _reporteAnio = new Date().getFullYear();
 let _clienteExpandido = null;
+let _pedidosSheet = null;       // cache de pedidos del Sheet (histórico)
+let _pedidosSheetCargando = false;
+let _pedidosSheetError = null;
+
+/* Parser de items del texto de col S (Comentarios):
+ *   "Asado Banderita 8 Costillas PREMIUM (3.280kg) 🥩, Chorizo (0.400kg) 🥩 | ⏰ 11 a 14 hs"
+ * Devuelve [{producto, variante, tipo, pesoOCantidad, subtotal:0}].
+ */
+function parseItemsSheet(texto) {
+  if (!texto) return [];
+  const limpio = texto.split('|')[0];
+  const segs = limpio.split(/,\s+/);
+  const items = [];
+  segs.forEach(seg => {
+    const m = seg.match(/^(.+?)\s*\(([\d.,]+)\s*(kg|u)\)/i);
+    if (!m) return;
+    let nombre = m[1].trim();
+    let variante = null;
+    const v = nombre.match(/^(.+?)\s*\[(.+?)\]\s*$/);
+    if (v) { nombre = v[1].trim(); variante = v[2].trim(); }
+    const cant = parseFloat(m[2].replace(',', '.'));
+    if (!isFinite(cant)) return;
+    items.push({ producto: nombre, variante: variante, tipo: m[3].toLowerCase() === 'kg' ? 'kg' : 'unidad', pesoOCantidad: cant, subtotal: 0 });
+  });
+  return items;
+}
+
+/* Trae pedidos del Sheet (histórico) y los cachea. Re-renderiza al terminar. */
+async function cargarPedidosSheet() {
+  if (!config || !config.sheetsUrl) return;
+  if (_pedidosSheetCargando || _pedidosSheet !== null) return;
+  _pedidosSheetCargando = true;
+  _pedidosSheetError = null;
+  try {
+    const resp = await fetch(config.sheetsUrl + '?action=getReporteData', { redirect: 'follow' });
+    const data = await resp.json();
+    if (data && data.success) _pedidosSheet = data.pedidos || [];
+    else { _pedidosSheetError = (data && data.error) || 'Sin respuesta'; _pedidosSheet = []; }
+  } catch(err) {
+    _pedidosSheetError = err.message;
+    _pedidosSheet = [];
+  }
+  _pedidosSheetCargando = false;
+  const app = document.getElementById('app');
+  if (app && app.getAttribute('data-vista') === 'reportes') renderReportes();
+}
+
+/* Combina Firebase + Sheet, dedup por sheetNum. Firebase gana cuando hay match. */
+function pedidosCombinados() {
+  if (!_pedidosSheet || !_pedidosSheet.length) return pedidos;
+  const fbSheetNums = new Set(pedidos.map(p => p.sheetNum).filter(Boolean));
+  const soloSheet = _pedidosSheet
+    .filter(s => s.sheetNum && !fbSheetNums.has(s.sheetNum))
+    .map(s => {
+      const estLow = (s.estado || '').toLowerCase();
+      return {
+        _id: 'sheet-' + s.sheetNum,
+        id: 'SHEET-' + s.sheetNum,
+        sheetNum: s.sheetNum,
+        fecha: s.fecha,
+        fechaEntrega: s.fechaEntrega || s.fecha,
+        cliente: s.cliente,
+        vendedor: s.vendedor,
+        tipoEnvio: s.tipoEnvio === 'Delivery' ? 'delivery' : (s.tipoEnvio === 'Retira' ? 'retiro' : ''),
+        totalFinal: s.totalFinal,
+        metodoPago: s.metodoPago,
+        fechaPago: s.fechaPago,
+        estado: estLow === 'pagado' ? 'pagado' : (estLow === 'parcial' ? 'parcial' : 'pendiente'),
+        montoParcial: estLow === 'pagado' ? s.totalFinal : 0,
+        items: parseItemsSheet(s.itemsTexto),
+        _origen: 'sheet'
+      };
+    });
+  return pedidos.concat(soloSheet);
+}
 
 function setReportePeriodo(p, anio) {
   _reportePeriodo = p;
@@ -2032,20 +2107,24 @@ function toggleClienteExpandido(nombre) {
 
 function _aniosConPedidos() {
   const set = new Set();
-  pedidos.forEach(p => { if (p.fecha) set.add(new Date(p.fecha).getFullYear()); });
+  pedidosCombinados().forEach(p => { if (p.fecha) set.add(new Date(p.fecha).getFullYear()); });
   return Array.from(set).sort((a, b) => b - a);
 }
 
 function renderReportes() {
   document.getElementById('app').setAttribute('data-vista', 'reportes');
+  // Disparar la carga del histórico del Sheet la primera vez que se abre Reportes
+  if (_pedidosSheet === null && !_pedidosSheetCargando) cargarPedidosSheet();
   const ahora = new Date();
   const mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
   const periodo = _reportePeriodo, anioSel = _reporteAnio;
   const MESES_LARGOS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
+  const fuente = pedidosCombinados();
+
   // ---- Filtrado por período ----
-  const pedidosFiltrados = pedidos.filter(p => {
+  const pedidosFiltrados = fuente.filter(p => {
     if (!p.fecha) return false;
     const f = new Date(p.fecha);
     if (periodo === 'mes_actual') return f.getMonth() === mesAct && f.getFullYear() === anioAct;
@@ -2067,6 +2146,12 @@ function renderReportes() {
         <button class="btn-periodo ${periodo==='todo'?'activo':''}" onclick="setReportePeriodo('todo')">Todo</button>
       </div>
       <div style="text-align:center;font-size:12px;color:#666;margin-top:8px;">${labelPeriodo} · ${pedidosFiltrados.length} pedido${pedidosFiltrados.length!==1?'s':''}${periodo!=='mes_actual'?` · facturado $${formatNum(pedidosFiltrados.reduce((s,p)=>s+(parseFloat(p.totalFinal)||0),0))}`:''}</div>
+      <div style="text-align:center;font-size:11px;margin-top:4px;color:${_pedidosSheetCargando?'#1565c0':(_pedidosSheetError?'#c62828':'#888')};">
+        ${_pedidosSheetCargando ? '⏳ Cargando histórico del Sheet...' :
+          _pedidosSheetError ? '⚠️ Sheet: ' + escapeHtml(_pedidosSheetError) + ' (mostrando solo Firebase)' :
+          _pedidosSheet ? `✅ Incluye histórico del Sheet (${_pedidosSheet.length} filas)` :
+          ''}
+      </div>
     </div>`;
 
   // ---- 1) Top cortes ----
@@ -2118,7 +2203,7 @@ function renderReportes() {
     }
   }
   const mesIdx = Object.fromEntries(meses.map((m, i) => [m.key, i]));
-  pedidos.forEach(p => {
+  fuente.forEach(p => {
     if (!p.fecha) return;
     const f = new Date(p.fecha);
     const k = f.getFullYear() + '-' + String(f.getMonth()+1).padStart(2,'0');
@@ -2200,7 +2285,7 @@ function renderReportes() {
     : topPorFrec.map((c, i) => renderClienteFila(c, i, true)).join('');
 
   // ---- 5) Cobranzas (siempre histórico — no respeta el filtro de período) ----
-  const cobranzas = pedidos
+  const cobranzas = fuente
     .filter(p => (p.estado || 'pendiente') !== 'pagado')
     .map(p => {
       const f = p.fecha ? new Date(p.fecha) : null;
@@ -2300,7 +2385,7 @@ function renderReportes() {
 }
 
 function renderClienteDetalle(nombre) {
-  const histo = pedidos
+  const histo = pedidosCombinados()
     .filter(p => p.cliente === nombre)
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
     .slice(0, 10);
