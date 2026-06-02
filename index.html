@@ -593,6 +593,7 @@ let clientes = [];
 let listasDisponibles = [];
 let carrito = [];
 let logisticaMonto = 0;
+let estadoPedidoDefault = 'fresco'; // 'fresco' | 'congelado' | 'mixto'
 let clienteSeleccionado = null;
 let firebaseListo = false;
 let unsubscribers = [];
@@ -980,6 +981,15 @@ function renderApp() {
 
     <div class="card">
       <h2>🛒 Productos del Pedido</h2>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;color:#666;letter-spacing:0.5px;margin-bottom:6px;">ESTADO POR DEFECTO (aplica a todo el pedido)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+          <button type="button" class="estado-prod-btn selected" data-pedido-estado="fresco" onclick="setEstadoPedidoDefault('fresco')">🥩 Fresco</button>
+          <button type="button" class="estado-prod-btn" data-pedido-estado="congelado" onclick="setEstadoPedidoDefault('congelado')">❄️ Congelado</button>
+          <button type="button" class="estado-prod-btn" data-pedido-estado="mixto" onclick="setEstadoPedidoDefault('mixto')">🔀 Mixto</button>
+        </div>
+        <div style="font-size:11px;color:#888;margin-top:6px;">Cambiarlo aplica a los ítems actuales y a los próximos. En "Mixto" se respeta el estado de cada ítem.</div>
+      </div>
       <div id="cartList"><div class="cart-empty">Todavía no agregaste productos</div></div>
       <button class="btn btn-add" onclick="abrirModalAgregar()">+ Agregar Producto</button>
       <button class="btn btn-add" id="btnAgregarLogistica" onclick="agregarLogistica()" style="margin-top:6px; border-color:#7986cb; color:#3949ab; background:#f0f4ff;">🚚 Agregar Logística</button>
@@ -1188,7 +1198,7 @@ function abrirModalAgregar() {
   document.getElementById('btnTipoUnidad').classList.remove('selected');
   // Reset estado: default fresco
   document.getElementById('estadoProductoBox').style.display = 'none';
-  seleccionarEstadoProducto('fresco');
+  seleccionarEstadoProducto(estadoPedidoDefault === 'mixto' ? 'fresco' : estadoPedidoDefault);
   document.getElementById('modalAgregar').classList.add('active');
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 100);
 }
@@ -1589,11 +1599,24 @@ function resetFormularioAgregar() {
   document.getElementById('btnTipoKg').classList.add('selected');
   document.getElementById('btnTipoUnidad').classList.remove('selected');
   document.getElementById('estadoProductoBox').style.display = 'none';
-  seleccionarEstadoProducto('fresco');
+  seleccionarEstadoProducto(estadoPedidoDefault === 'mixto' ? 'fresco' : estadoPedidoDefault);
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 50);
 }
 
 function eliminarItem(idx) { carrito.splice(idx, 1); renderCarrito(); actualizarTotales(); }
+
+function setEstadoPedidoDefault(estado) {
+  estadoPedidoDefault = estado;
+  // Sincronizar visual de los botones a nivel pedido
+  document.querySelectorAll('[data-pedido-estado]').forEach(b => {
+    b.classList.toggle('selected', b.dataset.pedidoEstado === estado);
+  });
+  // Propagar a items existentes salvo en 'mixto' (que respeta lo individual)
+  if (estado !== 'mixto') {
+    carrito.forEach(it => { it.estado = estado; });
+    renderCarrito();
+  }
+}
 
 // renderCarrito — incluye botón editar + soporta items "borrador" (sin peso o sin precio)
 function renderCarrito() {
@@ -1706,9 +1729,10 @@ async function generarResumen() {
     id: 'PED-' + Date.now(), cliente, telefono, direccion, fecha, vendedor,
     listaPrecios: config.listaActiva, items: [...carrito],
     logistica: logisticaMonto,
-    tipoEnvio,          // CAMBIO 3
-    fechaEntrega,       // CAMBIO 3
-    horario: horarioSeleccionado, // CAMBIO 3
+    tipoEnvio,
+    fechaEntrega,
+    horario: horarioSeleccionado,
+    estadoDefault: estadoPedidoDefault,
     subtotalPedido: sub, descuentoPct: dp, descuentoMonto: dm, totalFinal: tot,
     alias: config.alias, titular: config.titular, timestamp: new Date().toISOString()
   };
@@ -1826,6 +1850,7 @@ function renderResumen(p) {
 function volverAPedidos() {
   carrito = [];
   logisticaMonto = 0;
+  estadoPedidoDefault = 'fresco';
   window._logisticaAgregada = false;
   clienteSeleccionado = null;
   // Limpiar estado de edición
@@ -2548,6 +2573,7 @@ function abrirEdicionPedido(id) {
   // Pre-cargar estado global ANTES de renderApp (para que sobreviva al render)
   carrito = (p.items || []).map(it => ({ ...it }));
   logisticaMonto = p.logistica || 0;
+  estadoPedidoDefault = p.estadoDefault || 'fresco';
   window._logisticaAgregada = (p.logistica || 0) > 0;
   tipoEnvio = p.tipoEnvio || 'retiro';
   // El horario puede ser uno de los predefinidos o un texto libre
@@ -2587,6 +2613,11 @@ function abrirEdicionPedido(id) {
     const btn = document.querySelector('.horario-btn[data-horario="' + horarioSeleccionado + '"]');
     if (btn) btn.classList.add('selected');
   }
+
+  // Sincronizar visual del selector estado-pedido (Fresco/Congelado/Mixto)
+  document.querySelectorAll('[data-pedido-estado]').forEach(b => {
+    b.classList.toggle('selected', b.dataset.pedidoEstado === estadoPedidoDefault);
+  });
 
   renderCarrito();
   actualizarTotales();
@@ -2639,6 +2670,7 @@ async function guardarEdicionPedido() {
     tipoEnvio,
     fechaEntrega,
     horario: horarioSeleccionado,
+    estadoDefault: estadoPedidoDefault,
     subtotalPedido: sub, descuentoPct: dp, descuentoMonto: dm, totalFinal: tot,
     alias: config.alias, titular: config.titular
   };
@@ -2660,7 +2692,7 @@ async function guardarEdicionPedido() {
     // Reset y volver al listado
     editandoPedidoId = null;
     pedidoOriginalSheets = null;
-    carrito = []; logisticaMonto = 0; window._logisticaAgregada = false;
+    carrito = []; logisticaMonto = 0; estadoPedidoDefault = 'fresco'; window._logisticaAgregada = false;
     horarioPersonalizado = '';
     renderPedidos();
   } catch(e) {
