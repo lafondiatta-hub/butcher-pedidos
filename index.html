@@ -1639,9 +1639,13 @@ function renderCarrito() {
       ? '<span style="color:#e65100; font-size:12px; font-weight:600;">📝 BORRADOR</span>'
       : '$' + formatNum(item.subtotal);
     const manualTag = item.manual ? '<span style="background:#fff3e0; color:#e65100; font-size:10px; padding:1px 6px; border-radius:8px; margin-left:6px;">✍️ Manual</span>' : '';
-    const estadoTag = item.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩 Fresco</span>'
-                    : item.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️ Congelado</span>'
-                    : '';
+    // Solo mostrar el estado por ítem cuando el pedido es Mixto.
+    // En Fresco/Congelado uniformes el indicador vive a nivel pedido.
+    const estadoTag = (estadoPedidoDefault === 'mixto')
+      ? (item.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩 Fresco</span>'
+        : item.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️ Congelado</span>'
+        : '')
+      : '';
     const varianteTag = item.variante ? '<span class="estado-tag" style="background:var(--cream); color:var(--navy);">' + escapeHtml(item.variante) + '</span>' : '';
     const borderStyle = esBorrador ? 'border-left:3px solid #f57c00;' : '';
     return `
@@ -1801,14 +1805,24 @@ function renderResumen(p) {
     const uCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='unidad' ? i.pesoOCantidad : '-');
     const precioCell = sinPrecio ? '<span style="color:#e65100;">A definir</span>' : '$' + formatNum(i.precio);
     const subCell = (sinCant || sinPrecio) ? '<span style="color:#e65100; font-weight:700;">📝</span>' : '$' + formatNum(i.subtotal);
-    const estadoTag = i.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩</span>'
-                    : i.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️</span>'
-                    : '';
+    // Solo mostrar emoji por ítem si el pedido es Mixto
+    const estadoTag = (p.estadoDefault === 'mixto')
+      ? (i.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩</span>'
+        : i.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️</span>'
+        : '')
+      : '';
     const varianteTxt = i.variante ? ` <span style="font-size:11px; color:#666; font-style:italic;">(${escapeHtml(i.variante)})</span>` : '';
     return `<tr><td>${escapeHtml(i.producto)}${varianteTxt}${estadoTag}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
   }).join('');
   const tieneBorrador = pedidoEsBorrador(p);
   const banderaBorrador = tieneBorrador ? `<div style="background:#fff3e0; border-left:4px solid #f57c00; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#e65100; font-weight:600;">📝 BORRADOR — hay items sin pesar o sin precio. El total final se confirma cuando completes los datos.</div>` : '';
+  const banderaEstado = p.estadoDefault === 'congelado'
+    ? `<div style="background:#e3f2fd; border-left:4px solid #1976d2; padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#0d47a1; font-weight:600;">❄️ Pedido CONGELADO</div>`
+    : p.estadoDefault === 'mixto'
+    ? `<div style="background:#f3e5f5; border-left:4px solid #7b1fa2; padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#4a148c; font-weight:600;">🔀 Pedido MIXTO — el estado se indica por ítem</div>`
+    : (p.estadoDefault === 'fresco' || !p.estadoDefault)
+    ? `<div style="background:#fbeaea; border-left:4px solid var(--meat-red); padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#a01a1a; font-weight:600;">🥩 Pedido FRESCO</div>`
+    : '';
   const logisticaRow = (p.logistica && p.logistica > 0)
     ? `<tr style="background:#f0f4ff;"><td><b>🚚 Logística</b></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num bold" style="color:#3949ab;">$${formatNum(p.logistica)}</td></tr>`
     : '';
@@ -1824,6 +1838,7 @@ function renderResumen(p) {
       </div>
       ${entregaHTML}
       ${banderaBorrador}
+      ${banderaEstado}
       <div class="section-title">💬 Detalle del Pedido</div>
       <table><thead><tr><th>Producto</th><th class="num">Kg</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>${itemsRows}${logisticaRow}</tbody></table>
       <div class="bottom">
@@ -1894,12 +1909,18 @@ function compartirWhatsApp() {
   } else {
     msg += `*Entrega:* 🏪 Retiro en local\n`;
   }
+  // Estado a nivel pedido cuando es uniforme (no Mixto)
+  if (p.estadoDefault === 'fresco' || !p.estadoDefault) msg += `*Estado:* 🥩 Fresco\n`;
+  else if (p.estadoDefault === 'congelado') msg += `*Estado:* ❄️ Congelado\n`;
   msg += `\n*Detalle:*\n`;
   p.items.forEach(i => {
     const sinCant = !i.pesoOCantidad || i.pesoOCantidad <= 0;
     const sinPrecio = !i.precio || i.precio <= 0;
     const qty = sinCant ? '⏳ pendiente' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3)+' kg' : i.pesoOCantidad+' u');
-    const estadoEmoji = i.estado === 'fresco' ? ' 🥩' : i.estado === 'congelado' ? ' ❄️' : '';
+    // Solo emoji por ítem si el pedido es Mixto
+    const estadoEmoji = (p.estadoDefault === 'mixto')
+      ? (i.estado === 'fresco' ? ' 🥩' : i.estado === 'congelado' ? ' ❄️' : '')
+      : '';
     const varianteTxt = i.variante ? ' (' + i.variante + ')' : '';
     if (sinCant || sinPrecio) {
       msg += `• ${i.producto}${varianteTxt}${estadoEmoji} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
