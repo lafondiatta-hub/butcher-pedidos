@@ -1789,6 +1789,7 @@ async function guardarPedidoEnFirebase(pedido) {
 }
 
 function renderResumen(p) {
+  document.getElementById('app').setAttribute('data-vista', 'resumen');
   const fechaFmt = formatFecha(p.fecha);
   // CAMBIO 3: info de entrega en el resumen
   const entregaHTML = p.tipoEnvio === 'delivery'
@@ -1855,6 +1856,7 @@ function renderResumen(p) {
       <button class="btn btn-primary" onclick="descargarImagen()">📸 Descargar imagen</button>
       <button class="btn btn-success" onclick="compartirWhatsApp()">💬 WhatsApp</button>
     </div>
+    ${p._id ? `<button class="btn btn-secondary" onclick="abrirEdicionPedido('${p._id}')" style="margin-top:10px;">✏️ Editar pedido (kg / precios)</button>` : ''}
     ${(p.estado && p.estado !== 'pagado' && p._id) ? `<button class="btn btn-meat" onclick="marcarPagado('${p._id}')" style="margin-top:10px;">💰 Marcar como pagado</button>` : ''}
     <button class="btn" onclick="agendarEnCalendarDesdeResumen()" style="margin-top:10px; background:#37474f; color:white;">📅 Agendar en Google Calendar</button>
     <button class="btn btn-add" onclick="volverAPedidos()" style="margin-top:10px;">➕ Cargar nuevo pedido</button>
@@ -1878,6 +1880,11 @@ function volverAPedidos() {
 // Botón "🏠 Inicio" disponible en todos los headers.
 // Si hay edición de pedido en curso o items en carrito, pide confirmación.
 function irAInicio() {
+  // Si ya estamos en el resumen, el pedido ya está guardado → no hay nada
+  // que descartar. Se limpia el carrito en memoria y volvemos a inicio.
+  const vista = document.getElementById('app').getAttribute('data-vista');
+  if (vista === 'resumen') { volverAPedidos(); return; }
+
   const hayEdicion = !!editandoPedidoId;
   const hayCarrito = carrito.length > 0 || window._logisticaAgregada;
   if (hayEdicion || hayCarrito) {
