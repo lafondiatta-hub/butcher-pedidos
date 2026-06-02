@@ -447,6 +447,7 @@ input[readonly] { background: #f5f5f5; }
       <button class="btn btn-primary" id="btnConfirmarAgregar" onclick="confirmarAgregar()">Agregar</button>
       <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
     </div>
+    <button class="btn btn-secondary" id="btnAgregarYSeguir" onclick="confirmarAgregar(true)" style="margin-top:8px;width:100%;background:#e8f5e9;border-color:#2e7d32;color:#1b5e20;">+ Agregar y seguir cargando</button>
   </div>
 </div>
 
@@ -1486,7 +1487,7 @@ function limpiarProductoSeleccionado() {
 }
 
 // confirmarAgregar — Fase 1B+1C: maneja agregar/editar + modo manual + cantidad/precio 0 (borrador)
-function confirmarAgregar() {
+function confirmarAgregar(seguirCargando) {
   const cantRaw = document.getElementById('inputCantidad').value;
   // Cantidad puede ser vacío o 0 → modo borrador
   const cant = (cantRaw === '' || cantRaw === null) ? 0 : (parseFloat(cantRaw) || 0);
@@ -1541,8 +1542,9 @@ function confirmarAgregar() {
       estado: estadoProd,
       variante: varianteProd
     });
-    renderCarrito(); actualizarTotales(); cerrarModal();
-    showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
+    renderCarrito(); actualizarTotales();
+    if (seguirCargando) { resetFormularioAgregar(); showToast(pendiente ? '✓ Agregado como borrador (cargá el siguiente)' : '✓ Agregado (cargá el siguiente)'); }
+    else { cerrarModal(); showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓'); }
     return;
   }
 
@@ -1560,8 +1562,35 @@ function confirmarAgregar() {
     estado: estadoProd,
     variante: varianteProd
   });
-  renderCarrito(); actualizarTotales(); cerrarModal();
-  showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓');
+  renderCarrito(); actualizarTotales();
+  if (seguirCargando) { resetFormularioAgregar(); showToast(pendiente ? '✓ Agregado como borrador (cargá el siguiente)' : '✓ Agregado (cargá el siguiente)'); }
+  else { cerrarModal(); showToast(pendiente ? '✓ Agregado como borrador' : 'Producto agregado ✓'); }
+}
+
+function resetFormularioAgregar() {
+  // Limpia el formulario para cargar el siguiente ítem sin cerrar el modal.
+  editandoItemIdx = -1;
+  agregandoManual = false;
+  productoSeleccionadoIdx = null;
+  document.getElementById('btnConfirmarAgregar').textContent = 'Agregar';
+  document.getElementById('inputBuscarProducto').value = '';
+  document.getElementById('inputCantidad').value = '';
+  document.getElementById('labelCantidadBox').style.display = 'none';
+  document.getElementById('productoSelectedBox').classList.remove('active');
+  document.getElementById('productoSuggestions').classList.remove('active');
+  document.getElementById('inputBuscarProducto').style.display = '';
+  const ico = document.querySelector('.producto-search-icon');
+  if (ico) ico.style.display = '';
+  document.getElementById('seccionBuscarCatalogo').style.display = '';
+  document.getElementById('seccionManual').style.display = 'none';
+  document.getElementById('manualNombre').value = '';
+  document.getElementById('manualPrecio').value = '';
+  document.getElementById('manualTipo').value = 'kg';
+  document.getElementById('btnTipoKg').classList.add('selected');
+  document.getElementById('btnTipoUnidad').classList.remove('selected');
+  document.getElementById('estadoProductoBox').style.display = 'none';
+  seleccionarEstadoProducto('fresco');
+  setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 50);
 }
 
 function eliminarItem(idx) { carrito.splice(idx, 1); renderCarrito(); actualizarTotales(); }
