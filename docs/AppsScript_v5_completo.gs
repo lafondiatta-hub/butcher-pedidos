@@ -1003,7 +1003,11 @@ function generarReporteMensual(mes, anio) {
   hojaReporte.getRange(1, 1).setValue('REPORTE DE CONSUMOS - ' + nombresMes[mes-1].toUpperCase() + ' ' + anio);
   hojaReporte.getRange(1, 1).setFontSize(14).setFontWeight('bold');
   hojaReporte.getRange(1, 1, 1, 5).merge();
-  hojaReporte.getRange(2, 1).setValue('Generado: ' + new Date().toLocaleDateString('es-AR') + ' | Pedidos: ' + pedidosProcesados);
+  var lineaResumen = 'Generado: ' + new Date().toLocaleDateString('es-AR') + ' | Pedidos del mes: ' + filasDelMes;
+  if (pedidosProcesados !== filasDelMes) {
+    lineaResumen += ' (' + pedidosProcesados + ' con items reconocidos, ' + (filasDelMes - pedidosProcesados) + ' sin parsear)';
+  }
+  hojaReporte.getRange(2, 1).setValue(lineaResumen);
   hojaReporte.getRange(4, 1, 1, 5).setValues([['Producto', 'Cant. Pedidos', 'Unidades', 'Kilos', 'Tipo']]);
   hojaReporte.getRange(4, 1, 1, 5).setFontWeight('bold').setBackground('#1a2542').setFontColor('white');
 

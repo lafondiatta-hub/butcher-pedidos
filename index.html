@@ -2149,19 +2149,22 @@ async function cargarPedidosSheet() {
   if (app && app.getAttribute('data-vista') === 'reportes') renderReportes();
 }
 
-/* Combina Firebase + Sheet, dedup por sheetNum y por cliente+fecha
- * (para pedidos viejos de Firebase que aún no tienen sheetNum). */
+/* Combina Firebase + Sheet con dedup en dos niveles:
+ *  1) sheetNum exacto (ID compartido — confiable).
+ *  2) cliente + fecha + totalFinal redondeado (fuzzy para pedidos
+ *     viejos de Firebase sin sheetNum; el total evita colapsar
+ *     dos pedidos legítimos del mismo cliente el mismo día). */
 function pedidosCombinados() {
   if (!_pedidosSheet || !_pedidosSheet.length) return pedidos;
   const fbSheetNums = new Set(pedidos.map(p => p.sheetNum).filter(Boolean));
-  const fbClienteFecha = new Set(pedidos
+  const tripleKey = (cli, fecha, total) => (cli || '').trim().toLowerCase() + '|' + (fecha || '') + '|' + Math.round((parseFloat(total) || 0));
+  const fbTriples = new Set(pedidos
     .filter(p => p.cliente && p.fecha)
-    .map(p => p.cliente.trim().toLowerCase() + '|' + p.fecha));
+    .map(p => tripleKey(p.cliente, p.fecha, p.totalFinal)));
   const soloSheet = _pedidosSheet
     .filter(s => {
       if (s.sheetNum && fbSheetNums.has(s.sheetNum)) return false;
-      const key = (s.cliente || '').trim().toLowerCase() + '|' + (s.fecha || '');
-      if (fbClienteFecha.has(key)) return false;
+      if (fbTriples.has(tripleKey(s.cliente, s.fecha, s.totalFinal))) return false;
       return true;
     })
     .map(s => {
@@ -2256,7 +2259,7 @@ function renderReportes() {
       <div style="text-align:center;font-size:11px;margin-top:4px;color:${_pedidosSheetCargando?'#1565c0':(_pedidosSheetError?'#c62828':'#888')};">
         ${_pedidosSheetCargando ? '⏳ Cargando histórico del Sheet...' :
           _pedidosSheetError ? '⚠️ Sheet: ' + escapeHtml(_pedidosSheetError) + ' (mostrando solo Firebase)' :
-          _pedidosSheet ? `✅ Incluye histórico del Sheet (${_pedidosSheet.length} filas)` :
+          _pedidosSheet ? `✅ Firebase: ${pedidos.length} · Sheet: ${_pedidosSheet.length} · Combinado: ${fuente.length} (dedup ${pedidos.length + _pedidosSheet.length - fuente.length})` :
           ''}
       </div>
     </div>`;
