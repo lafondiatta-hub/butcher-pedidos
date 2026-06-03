@@ -960,14 +960,20 @@ function generarReporteMensual(mes, anio) {
     var itemsEncontrados = false;
     if (comentario && typeof comentario === 'string' && comentario.trim() !== '') {
       var parteItems = comentario.split(' | ')[0];
-      var itemsArr = parteItems.split(',');
+      // Items separados por coma+espacio; el emoji 🥩/❄️ va después del ")"
+      var itemsArr = parteItems.split(/,\s+/);
       for (var j = 0; j < itemsArr.length; j++) {
         var item = itemsArr[j].trim();
         if (!item) continue;
-        var match2 = item.match(/^(.+?)\s*\(([0-9.]+)(kg|u)\)$/);
+        // Sin $ final → tolera trailing emoji y cualquier sufijo.
+        // Coma decimal por las dudas (algunos locales).
+        var match2 = item.match(/^(.+?)\s*\(([0-9.,]+)\s*(kg|u)\)/i);
         if (match2) {
-          agregarConsumo(consumos, match2[1].trim(), parseFloat(match2[2]), match2[3]);
-          itemsEncontrados = true;
+          var cantNum = parseFloat(match2[2].replace(',', '.'));
+          if (!isNaN(cantNum)) {
+            agregarConsumo(consumos, match2[1].trim(), cantNum, match2[3].toLowerCase());
+            itemsEncontrados = true;
+          }
         }
       }
     }
