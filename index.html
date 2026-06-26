@@ -109,26 +109,22 @@ body {
 .cliente-clickable:hover { background: #fafafa; }
 .tabbar {
   position: sticky; top: 0; z-index: 50;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  background: #f0f0f0; padding: 12px 0 14px; margin-bottom: 12px;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+  background: #f0f0f0; padding: 10px 0 12px; margin-bottom: 12px;
 }
-.tabbar-4 { grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .tab-btn {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 13px 10px; border-radius: var(--radius);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 9px 2px; border-radius: var(--radius); position: relative;
   border: 2px solid var(--navy); background: white; color: var(--navy);
-  font-weight: 700; font-size: 14px; font-family: inherit; cursor: pointer; transition: all 0.15s;
+  font-weight: 700; font-family: inherit; cursor: pointer; transition: all 0.15s;
 }
 .tab-btn.active { background: var(--navy); color: white; }
-.tabbar-4 .tab-btn {
-  flex-direction: column; gap: 3px; padding: 9px 4px; position: relative;
-}
-.tabbar-4 .tab-ico { font-size: 18px; line-height: 1; }
-.tabbar-4 .tab-lbl { font-size: 11px; font-weight: 700; }
-.tabbar-4 .tab-badge { position: absolute; top: 4px; right: 6px; }
+.tab-ico { font-size: 18px; line-height: 1; }
+.tab-lbl { font-size: 10.5px; font-weight: 700; }
 .tab-badge {
-  background: var(--meat-red); color: white; font-size: 11px; font-weight: 700;
-  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  position: absolute; top: 3px; right: 4px;
+  background: var(--meat-red); color: white; font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center; line-height: 1;
 }
 .fecha-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -668,7 +664,7 @@ async function iniciarApp() {
     }
     suscribirseACambios();
     if (productos.length === 0 || !config) renderSetup();
-    else renderPedidos();
+    else renderInicio();
     iniciarAutoSyncCobros();
   } catch (err) {
     console.error('Error iniciando:', err);
@@ -698,6 +694,7 @@ function suscribirseACambios() {
     const v = document.getElementById('app').getAttribute('data-vista');
     if (v === 'pedidos') renderPedidos();
     if (v === 'resumenes') renderResumenes();
+    if (v === 'inicio') renderInicio();
     if (v === 'main') actualizarContadorPedidos();
   });
   unsubscribers.push(u1);
@@ -960,7 +957,8 @@ function contarPendientes() {
 function renderTabBar(activa) {
   const { pend } = contarPendientes();
   const badge = pend > 0 ? `<span class="tab-badge">${pend}</span>` : '';
-  return `<div class="tabbar tabbar-4">
+  return `<div class="tabbar">
+    <button class="tab-btn ${activa==='inicio'?'active':''}" onclick="renderInicio()"><span class="tab-ico">🏠</span><span class="tab-lbl">Inicio</span></button>
     <button class="tab-btn ${activa==='nuevo'?'active':''}" onclick="renderApp()"><span class="tab-ico">➕</span><span class="tab-lbl">Nuevo</span></button>
     <button class="tab-btn ${activa==='pedidos'?'active':''}" onclick="renderPedidos()"><span class="tab-ico">📋</span><span class="tab-lbl">Pedidos</span>${badge}</button>
     <button class="tab-btn ${activa==='resumenes'?'active':''}" onclick="renderResumenes()"><span class="tab-ico">📊</span><span class="tab-lbl">Resúmenes</span></button>
@@ -968,13 +966,63 @@ function renderTabBar(activa) {
   </div>`;
 }
 
-function miniStat(label, valor, color, bg) {
-  return `<div style="background:${bg};padding:12px;border-radius:8px;text-align:center;border-left:3px solid ${color};">
+function miniStat(label, valor, color, bg, onclick) {
+  const click = onclick ? `onclick="${onclick}" style="cursor:pointer;` : `style="`;
+  const flecha = onclick ? `<div style="font-size:10px;color:${color};font-weight:600;margin-top:2px;">ver →</div>` : '';
+  return `<div ${click}background:${bg};padding:12px;border-radius:8px;text-align:center;border-left:3px solid ${color};">
     <div style="font-size:11px;color:#666;text-transform:uppercase;">${label}</div>
-    <div style="font-size:20px;font-weight:700;color:${color};">${valor}</div></div>`;
+    <div style="font-size:20px;font-weight:700;color:${color};">${valor}</div>${flecha}</div>`;
 }
 
 const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+// Ir a Pedidos aplicando filtros (desde KPIs clickeables del Inicio)
+function irAPedidosCon(opts) {
+  filtroEstado = opts.estado || 'todos';
+  filtroVendedor = opts.vendedor || 'todos';
+  filtroFecha = opts.fecha || 'todos';
+  filtroCliente = '';
+  if (opts.fecha !== 'exacta') filtroFechaExacta = '';
+  if (opts.fecha !== 'rango') { filtroFechaDesde = ''; filtroFechaHasta = ''; }
+  renderPedidos();
+}
+
+function renderInicio() {
+  document.getElementById('app').setAttribute('data-vista', 'inicio');
+  const r = rangoFechas();
+  const ahora = new Date(), mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
+  let pedMes = 0, factMes = 0, cobMes = 0, porCobrar = 0, entHoy = 0;
+  pedidos.forEach(p => {
+    const est = p.estado || 'pendiente';
+    const fp = new Date(p.fecha);
+    const esMes = fp.getMonth() === mesAct && fp.getFullYear() === anioAct;
+    const tot = p.totalFinal || 0;
+    if (esMes) { pedMes++; factMes += tot; if (est === 'pagado') cobMes += tot; }
+    if (est === 'parcial') porCobrar += tot - (p.montoParcial||0);
+    else if (est !== 'pagado') porCobrar += tot;
+    if (edate(p) === r.hoy) entHoy++;
+  });
+  const ticket = pedMes ? Math.round(factMes / pedMes) : 0;
+  document.getElementById('app').innerHTML = `
+    ${renderTabBar('inicio')}
+    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Inicio</p></div>
+    <button class="btn btn-meat" onclick="renderApp()" style="font-size:16px;padding:16px;">➕ Agendar nuevo pedido</button>
+    <div class="card" style="margin-top:14px;"><h2>📊 ${MESES_ES[mesAct]} ${anioAct}</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${miniStat('Pedidos del mes', pedMes, 'var(--navy)', 'var(--cream)')}
+        ${miniStat('Facturado del mes', '$'+formatNum(factMes), 'var(--navy)', 'var(--cream)')}
+        ${miniStat('Por cobrar', '$'+formatNum(porCobrar), 'var(--meat-red)', '#fbeaea', "irAPedidosCon({estado:'pendiente'})")}
+        ${miniStat('Entregas hoy', entHoy, '#e65100', '#fff3e0', "irAPedidosCon({fecha:'hoy'})")}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+        ${miniStat('Cobrado del mes', '$'+formatNum(cobMes), '#1b5e20', '#e8f5e9')}
+        ${miniStat('Ticket promedio', '$'+formatNum(ticket), 'var(--navy)', 'var(--cream)')}
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="renderPedidos()" style="margin-top:6px;">📋 Ver todos los pedidos</button>
+  `;
+  window.scrollTo(0, 0);
+}
 
 function renderResumenes() {
   document.getElementById('app').setAttribute('data-vista', 'resumenes');
@@ -1012,7 +1060,7 @@ function renderResumenes() {
   const borrLine = cBorr > 0 ? `<div style="margin-top:8px;text-align:center;font-size:12px;color:#e65100;font-weight:600;">📝 ${cBorr} borrador${cBorr!==1?'es':''} sin completar</div>` : '';
   document.getElementById('app').innerHTML = `
     ${renderTabBar('resumenes')}
-    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Resúmenes</p></div>
+    <div class="header"><button class="btn-back" onclick="renderInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Resúmenes</p></div>
     <div class="card"><h2>💰 Plata</h2>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         ${miniStat('Por cobrar', '$'+formatNum(porCobrar), 'var(--meat-red)', '#fbeaea')}
@@ -1052,6 +1100,7 @@ function renderApp() {
   app.innerHTML = `
     ${renderTabBar('nuevo')}
     <div class="header">
+      <button class="btn-back" onclick="renderInicio()">🏠 Inicio</button>
       <button class="btn-home" onclick="irAInicio()" title="Limpiar y volver a inicio">🧹 Limpiar</button>
       <img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo">
       <p>Carga de Pedidos</p>
@@ -2197,12 +2246,14 @@ function renderDashboardStats() {
 function actualizarContadorPedidos() { const el = document.getElementById('dashboardStats'); if (el) el.innerHTML = renderDashboardStats(); }
 
 let filtroEstado = 'todos', filtroCliente = '', filtroFecha = 'todos';
+let filtroVendedor = 'todos', filtroFechaExacta = '', filtroFechaDesde = '', filtroFechaHasta = '';
 
 function renderPedidos() {
   document.getElementById('app').setAttribute('data-vista', 'pedidos');
   const r = rangoFechas();
   const pf = pedidos.filter(p => {
     if (filtroEstado !== 'todos' && (p.estado||'pendiente') !== filtroEstado) return false;
+    if (filtroVendedor !== 'todos' && (p.vendedor||'') !== filtroVendedor) return false;
     // Búsqueda: por nombre de cliente o por número de pedido (#)
     const q = normalizar(filtroCliente);
     if (q) {
@@ -2218,6 +2269,11 @@ function renderPedidos() {
       if (filtroFecha === 'hoy' && ed !== r.hoy) return false;
       if (filtroFecha === 'semana' && (ed < r.lunes || ed > r.domingo)) return false;
       if (filtroFecha === 'mes' && ed.slice(0,7) !== r.mes) return false;
+      if (filtroFecha === 'exacta' && ed !== filtroFechaExacta) return false;
+      if (filtroFecha === 'rango') {
+        if (filtroFechaDesde && ed < filtroFechaDesde) return false;
+        if (filtroFechaHasta && ed > filtroFechaHasta) return false;
+      }
     }
     return true;
   });
@@ -2238,12 +2294,15 @@ function renderPedidos() {
          <span style="font-weight:700;color:#e65100;">🔥 ${hoyCount} entrega${hoyCount!==1?'s':''} para hoy</span>
          <span style="font-size:12px;color:#e65100;font-weight:600;">Ver →</span></div>`
     : '';
+  const vendedores = Array.from(new Set(pedidos.map(p => p.vendedor).filter(Boolean))).sort();
+  const hayFiltro = filtroEstado!=='todos' || filtroVendedor!=='todos' || filtroCliente || filtroFecha!=='todos';
   document.getElementById('app').innerHTML = `
     ${renderTabBar('pedidos')}
-    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Seguimiento</p></div>
+    <div class="header"><button class="btn-back" onclick="renderInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Seguimiento</p></div>
     ${bannerHoy}
     <div class="card"><h2>🔍 Filtros</h2>
-      <div class="form-row-full"><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
+      <div class="form-row"><div><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
+      <div><label>Vendedor</label><select onchange="cambiarFiltroVendedor(this.value)"><option value="todos">Todos</option>${vendedores.map(v => `<option value="${escapeHtml(v)}" ${filtroVendedor===v?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select></div></div>
       <div class="form-row-full"><label>Buscar cliente o N° de pedido</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre o #12"></div>
       <div class="form-row-full" style="margin-top:10px;"><label>Entrega</label>
         <div class="fecha-filtros">
@@ -2253,8 +2312,17 @@ function renderPedidos() {
           <button class="ff-btn ${filtroFecha==='mes'?'active':''}" onclick="cambiarFiltroFecha('mes')">Este mes</button>
         </div>
       </div>
-      <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-top:12px;border-left:3px solid var(--meat-red);"><div style="font-size:12px;color:#666;">Por cobrar${filtroFecha!=='todos'||filtroEstado!=='todos'||filtroCliente?' (filtrado)':''}</div><div style="font-size:20px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPC)}</div></div>
-      ${(config && config.sheetsUrl) ? `<button class="btn btn-secondary" onclick="sincronizarCobrosConSheets()" style="margin-top:10px;width:100%;">🔄 Sincronizar cobros con Sheets</button>` : ''}
+      <div class="form-row" style="margin-top:8px;">
+        <div><label>Día exacto</label><input type="date" value="${filtroFechaExacta}" onchange="setFiltroFechaExacta(this.value)"></div>
+        <div><label>${filtroFecha==='exacta'?'​':''}</label><button class="ff-btn" style="width:100%;padding:9px;${filtroFecha==='rango'||filtroFecha==='exacta'?'background:#eee;':''}" onclick="cambiarFiltroFecha('todos')">↺ Limpiar fecha</button></div>
+      </div>
+      <div class="form-row" style="margin-top:8px;">
+        <div><label>Desde</label><input type="date" value="${filtroFechaDesde}" onchange="setFiltroFechaRango('desde', this.value)"></div>
+        <div><label>Hasta</label><input type="date" value="${filtroFechaHasta}" onchange="setFiltroFechaRango('hasta', this.value)"></div>
+      </div>
+      <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-top:12px;border-left:3px solid var(--meat-red);"><div style="font-size:12px;color:#666;">Por cobrar${hayFiltro?' (filtrado)':''}</div><div style="font-size:20px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPC)}</div></div>
+      ${hayFiltro ? `<button class="btn btn-secondary" onclick="limpiarFiltrosPedidos()" style="margin-top:10px;width:100%;">✕ Limpiar todos los filtros</button>` : ''}
+      ${(config && config.sheetsUrl) ? `<button class="btn btn-secondary" onclick="sincronizarCobrosConSheets()" style="margin-top:8px;width:100%;">🔄 Sincronizar cobros con Sheets</button>` : ''}
     </div>
     <div class="card"><h2>📋 Pedidos (${pf.length})</h2>${pf.length===0?'<div class="cart-empty">Sin resultados</div>':pf.map(p => renderPedidoCard(p)).join('')}</div>
   `;
@@ -2648,6 +2716,7 @@ function renderReportes() {
   document.getElementById('app').innerHTML = `
     ${renderTabBar('reportes')}
     <div class="header">
+      <button class="btn-back" onclick="renderInicio()">🏠 Inicio</button>
       <img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo">
       <p>Reportes</p>
     </div>
@@ -2787,7 +2856,31 @@ function renderPedidoCard(p) {
     </div></div>`;
 }
 function cambiarFiltroEstado(v) { filtroEstado = v; renderPedidos(); }
-function cambiarFiltroFecha(v) { filtroFecha = v; renderPedidos(); }
+function cambiarFiltroVendedor(v) { filtroVendedor = v; renderPedidos(); }
+function cambiarFiltroFecha(v) {
+  filtroFecha = v;
+  // Los botones rápidos limpian los selectores de día/rango
+  if (v !== 'exacta') filtroFechaExacta = '';
+  if (v !== 'rango') { filtroFechaDesde = ''; filtroFechaHasta = ''; }
+  renderPedidos();
+}
+function setFiltroFechaExacta(v) {
+  filtroFechaExacta = v;
+  filtroFecha = v ? 'exacta' : 'todos';
+  if (v) { filtroFechaDesde = ''; filtroFechaHasta = ''; }
+  renderPedidos();
+}
+function setFiltroFechaRango(cual, v) {
+  if (cual === 'desde') filtroFechaDesde = v; else filtroFechaHasta = v;
+  filtroFechaExacta = '';
+  filtroFecha = (filtroFechaDesde || filtroFechaHasta) ? 'rango' : 'todos';
+  renderPedidos();
+}
+function limpiarFiltrosPedidos() {
+  filtroEstado = 'todos'; filtroVendedor = 'todos'; filtroCliente = '';
+  filtroFecha = 'todos'; filtroFechaExacta = ''; filtroFechaDesde = ''; filtroFechaHasta = '';
+  renderPedidos();
+}
 function cambiarFiltroCliente(v) { filtroCliente = v; clearTimeout(window._ft); window._ft = setTimeout(() => renderPedidos(), 300); }
 function cambiarEstadoPedido(est) {
   document.getElementById('estadoPedido').value = est;
