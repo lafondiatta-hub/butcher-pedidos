@@ -107,6 +107,37 @@ body {
 .btn-periodo.activo:hover { background: var(--navy); }
 .cliente-clickable { cursor: pointer; transition: background 0.1s; }
 .cliente-clickable:hover { background: #fafafa; }
+.tabbar {
+  position: sticky; top: 0; z-index: 50;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  background: #f0f0f0; padding: 12px 0 14px; margin-bottom: 12px;
+}
+.tabbar-4 { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tab-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 13px 10px; border-radius: var(--radius);
+  border: 2px solid var(--navy); background: white; color: var(--navy);
+  font-weight: 700; font-size: 14px; font-family: inherit; cursor: pointer; transition: all 0.15s;
+}
+.tab-btn.active { background: var(--navy); color: white; }
+.tabbar-4 .tab-btn {
+  flex-direction: column; gap: 3px; padding: 9px 4px; position: relative;
+}
+.tabbar-4 .tab-ico { font-size: 18px; line-height: 1; }
+.tabbar-4 .tab-lbl { font-size: 11px; font-weight: 700; }
+.tabbar-4 .tab-badge { position: absolute; top: 4px; right: 6px; }
+.tab-badge {
+  background: var(--meat-red); color: white; font-size: 11px; font-weight: 700;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+}
+.fecha-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ff-btn {
+  flex: 1 1 auto; padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc;
+  background: white; color: var(--navy); font-size: 12px; font-weight: 600;
+  font-family: inherit; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.ff-btn.active { background: var(--navy); color: white; border-color: var(--navy); }
 .card {
   background: white;
   border-radius: var(--radius);
@@ -637,7 +668,7 @@ async function iniciarApp() {
     }
     suscribirseACambios();
     if (productos.length === 0 || !config) renderSetup();
-    else renderApp();
+    else renderPedidos();
     iniciarAutoSyncCobros();
   } catch (err) {
     console.error('Error iniciando:', err);
@@ -666,6 +697,7 @@ function suscribirseACambios() {
     pedidos = s.docs.map(d => ({ _id: d.id, ...d.data() }));
     const v = document.getElementById('app').getAttribute('data-vista');
     if (v === 'pedidos') renderPedidos();
+    if (v === 'resumenes') renderResumenes();
     if (v === 'main') actualizarContadorPedidos();
   });
   unsubscribers.push(u1);
@@ -896,6 +928,117 @@ function onExcelUpload(event) {
 }
 
 /* ============ PANTALLA PRINCIPAL ============ */
+// ============================================================
+// Barra de tabs (Pedidos / Nuevo pedido) + helpers de fecha
+// ============================================================
+function fechaLocalISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// Fecha efectiva de entrega de un pedido (entrega o, si está vacía, la del pedido)
+function edate(p) { return p.fechaEntrega || p.fecha || ''; }
+
+// Rangos relativos a hoy. Semana lunes→domingo.
+function rangoFechas() {
+  const now = new Date();
+  const hoy = fechaLocalISO(now);
+  const man = new Date(now); man.setDate(now.getDate()+1);
+  const dow = (now.getDay()+6)%7; // lunes=0
+  const lun = new Date(now); lun.setDate(now.getDate()-dow);
+  const dom = new Date(lun); dom.setDate(lun.getDate()+6);
+  return { hoy, manana: fechaLocalISO(man), lunes: fechaLocalISO(lun), domingo: fechaLocalISO(dom), mes: hoy.slice(0,7) };
+}
+
+function contarPendientes() {
+  let pend = 0, borr = 0;
+  pedidos.forEach(p => {
+    if ((p.estado||'pendiente') !== 'pagado') pend++;
+    if (pedidoEsBorrador(p)) borr++;
+  });
+  return { pend, borr };
+}
+
+function renderTabBar(activa) {
+  const { pend } = contarPendientes();
+  const badge = pend > 0 ? `<span class="tab-badge">${pend}</span>` : '';
+  return `<div class="tabbar tabbar-4">
+    <button class="tab-btn ${activa==='nuevo'?'active':''}" onclick="renderApp()"><span class="tab-ico">➕</span><span class="tab-lbl">Nuevo</span></button>
+    <button class="tab-btn ${activa==='pedidos'?'active':''}" onclick="renderPedidos()"><span class="tab-ico">📋</span><span class="tab-lbl">Pedidos</span>${badge}</button>
+    <button class="tab-btn ${activa==='resumenes'?'active':''}" onclick="renderResumenes()"><span class="tab-ico">📊</span><span class="tab-lbl">Resúmenes</span></button>
+    <button class="tab-btn ${activa==='reportes'?'active':''}" onclick="renderReportes()"><span class="tab-ico">📈</span><span class="tab-lbl">Reportes</span></button>
+  </div>`;
+}
+
+function miniStat(label, valor, color, bg) {
+  return `<div style="background:${bg};padding:12px;border-radius:8px;text-align:center;border-left:3px solid ${color};">
+    <div style="font-size:11px;color:#666;text-transform:uppercase;">${label}</div>
+    <div style="font-size:20px;font-weight:700;color:${color};">${valor}</div></div>`;
+}
+
+const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function renderResumenes() {
+  document.getElementById('app').setAttribute('data-vista', 'resumenes');
+  const r = rangoFechas();
+  const ahora = new Date(), mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
+  let porCobrar = 0, cobMes = 0, ventasMes = 0;
+  let cPend = 0, cParc = 0, cPag = 0, cBorr = 0;
+  let eHoy = 0, eMan = 0, eSem = 0;
+  const porVendedor = {};
+  pedidos.forEach(p => {
+    const est = p.estado || 'pendiente';
+    const fp = new Date(p.fecha);
+    const esMes = fp.getMonth() === mesAct && fp.getFullYear() === anioAct;
+    const tot = p.totalFinal || 0;
+    if (est === 'pagado') { cPag++; if (esMes) cobMes += tot; }
+    else if (est === 'parcial') { cParc++; porCobrar += tot - (p.montoParcial||0); }
+    else { cPend++; porCobrar += tot; }
+    if (pedidoEsBorrador(p)) cBorr++;
+    if (esMes) { ventasMes += tot; const v = p.vendedor || '—'; porVendedor[v] = (porVendedor[v]||0) + tot; }
+    const ed = edate(p);
+    if (ed === r.hoy) eHoy++;
+    if (ed === r.manana) eMan++;
+    if (ed && ed >= r.lunes && ed <= r.domingo) eSem++;
+  });
+  const ranking = Object.entries(porVendedor).sort((a,b) => b[1]-a[1]);
+  const maxV = ranking.length ? ranking[0][1] : 0;
+  const rankHtml = ranking.length
+    ? ranking.map(([v, monto]) => {
+        const pct = maxV ? Math.round(monto/maxV*100) : 0;
+        return `<div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="font-weight:600;color:var(--navy);">${escapeHtml(v)}</span><span style="font-weight:700;color:var(--navy);">$${formatNum(monto)}</span></div>
+          <div style="background:#eee;border-radius:6px;height:9px;overflow:hidden;"><div style="background:var(--meat-red);height:100%;width:${pct}%;border-radius:6px;"></div></div></div>`;
+      }).join('')
+    : '<div class="cart-empty">Sin ventas este mes</div>';
+  const borrLine = cBorr > 0 ? `<div style="margin-top:8px;text-align:center;font-size:12px;color:#e65100;font-weight:600;">📝 ${cBorr} borrador${cBorr!==1?'es':''} sin completar</div>` : '';
+  document.getElementById('app').innerHTML = `
+    ${renderTabBar('resumenes')}
+    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Resúmenes</p></div>
+    <div class="card"><h2>💰 Plata</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${miniStat('Por cobrar', '$'+formatNum(porCobrar), 'var(--meat-red)', '#fbeaea')}
+        ${miniStat('Cobrado ('+MESES_ES[mesAct]+')', '$'+formatNum(cobMes), '#1b5e20', '#e8f5e9')}
+      </div>
+      <div style="margin-top:10px;">${miniStat('Ventas del mes (todo)', '$'+formatNum(ventasMes), 'var(--navy)', 'var(--cream)')}</div>
+    </div>
+    <div class="card"><h2>🚚 Entregas próximas</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        ${miniStat('Hoy', eHoy, '#e65100', '#fff3e0')}
+        ${miniStat('Mañana', eMan, '#fb8c00', '#fff8e1')}
+        ${miniStat('Esta semana', eSem, 'var(--navy)', 'var(--cream)')}
+      </div>
+    </div>
+    <div class="card"><h2>📋 Pedidos por estado</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        ${miniStat('Pendientes', cPend, '#f57c00', '#fff3e0')}
+        ${miniStat('Parciales', cParc, '#f9a825', '#fff9c4')}
+        ${miniStat('Pagados', cPag, '#2e7d32', '#e8f5e9')}
+      </div>${borrLine}
+    </div>
+    <div class="card"><h2>🏆 Ventas por vendedor (${MESES_ES[mesAct]})</h2>${rankHtml}</div>
+  `;
+  window.scrollTo(0, 0);
+}
+
 function renderApp() {
   // Reset estado de envío al renderizar (NO si estamos editando un pedido)
   if (!editandoPedidoId) {
@@ -907,6 +1050,7 @@ function renderApp() {
   const app = document.getElementById('app');
   app.setAttribute('data-vista', 'main');
   app.innerHTML = `
+    ${renderTabBar('nuevo')}
     <div class="header">
       <button class="btn-home" onclick="irAInicio()" title="Limpiar y volver a inicio">🧹 Limpiar</button>
       <img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo">
@@ -1017,21 +1161,6 @@ function renderApp() {
     <div id="bannerEdicion" style="display:none; margin-top:12px; padding:12px; background:#fff3e0; border-left:4px solid #f57c00; border-radius:6px; font-size:13px; color:#e65100;">
       ✏️ Editando pedido existente. Al guardar se actualiza Firebase + Google Sheets.
       <button onclick="cancelarEdicionPedido()" style="margin-left:10px; background:none; border:1px solid #f57c00; color:#e65100; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600;">Cancelar</button>
-    </div>
-    <div class="card" style="margin-top:20px;">
-      <h2>💰 Seguimiento de Pagos</h2>
-      <div id="dashboardStats" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">${renderDashboardStats()}</div>
-      <button class="btn btn-primary" onclick="renderPedidos()">📋 Ver todos los pedidos</button>
-    </div>
-    <div class="card" style="margin-top:20px;">
-      <h2>⚙️ Herramientas</h2>
-      <div class="menu-buttons">
-        <button class="btn btn-secondary" onclick="abrirConfig()">⚙️ Configuración</button>
-        <button class="btn btn-secondary" onclick="actualizarPrecios()">🔄 Actualizar precios</button>
-        <button class="btn btn-secondary" onclick="renderReportes()">📊 Reportes</button>
-        <button class="btn btn-secondary" onclick="exportarPedidosExcel()">📊 Exportar a Excel</button>
-        <button class="btn btn-secondary" onclick="abrirReporte()">📊 Reporte mensual</button>
-      </div>
     </div>
   `;
   document.getElementById('fecha').valueAsDate = new Date();
@@ -2067,26 +2196,67 @@ function renderDashboardStats() {
 }
 function actualizarContadorPedidos() { const el = document.getElementById('dashboardStats'); if (el) el.innerHTML = renderDashboardStats(); }
 
-let filtroEstado = 'todos', filtroCliente = '';
+let filtroEstado = 'todos', filtroCliente = '', filtroFecha = 'todos';
 
 function renderPedidos() {
   document.getElementById('app').setAttribute('data-vista', 'pedidos');
+  const r = rangoFechas();
   const pf = pedidos.filter(p => {
     if (filtroEstado !== 'todos' && (p.estado||'pendiente') !== filtroEstado) return false;
-    if (filtroCliente && !normalizar(p.cliente).includes(normalizar(filtroCliente))) return false;
+    // Búsqueda: por nombre de cliente o por número de pedido (#)
+    const q = normalizar(filtroCliente);
+    if (q) {
+      const qNum = q.replace(/[^0-9]/g, '');
+      const matchCliente = normalizar(p.cliente).includes(q);
+      const matchNum = qNum && String(p.sheetNum||'').includes(qNum);
+      if (!matchCliente && !matchNum) return false;
+    }
+    // Filtro por fecha de entrega
+    if (filtroFecha !== 'todos') {
+      const ed = edate(p);
+      if (!ed) return false;
+      if (filtroFecha === 'hoy' && ed !== r.hoy) return false;
+      if (filtroFecha === 'semana' && (ed < r.lunes || ed > r.domingo)) return false;
+      if (filtroFecha === 'mes' && ed.slice(0,7) !== r.mes) return false;
+    }
     return true;
   });
+  // Ordenar para que lo que hay que entregar primero quede arriba:
+  // HOY → mañana → futuras (ascendente) → pasadas (más reciente primero) → sin fecha
+  pf.sort((a, b) => {
+    const ea = edate(a), eb = edate(b);
+    const ba = !ea ? 2 : (ea >= r.hoy ? 0 : 1);
+    const bb = !eb ? 2 : (eb >= r.hoy ? 0 : 1);
+    if (ba !== bb) return ba - bb;
+    if (ba === 0) return ea.localeCompare(eb);  // hoy + futuro: ascendente
+    return eb.localeCompare(ea);                 // pasado: descendente
+  });
   const totalPC = pf.filter(p => (p.estado||'pendiente')!=='pagado').reduce((s, p) => s + (p.totalFinal-(p.montoParcial||0)), 0);
+  const hoyCount = pedidos.filter(p => edate(p) === r.hoy).length;
+  const bannerHoy = (hoyCount > 0 && filtroFecha !== 'hoy')
+    ? `<div onclick="cambiarFiltroFecha('hoy')" style="cursor:pointer;background:#fff3e0;border-left:4px solid #f57c00;padding:11px 12px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+         <span style="font-weight:700;color:#e65100;">🔥 ${hoyCount} entrega${hoyCount!==1?'s':''} para hoy</span>
+         <span style="font-size:12px;color:#e65100;font-weight:600;">Ver →</span></div>`
+    : '';
   document.getElementById('app').innerHTML = `
-    <div class="header"><button class="btn-back" onclick="renderApp()">← Volver</button><button class="btn-home" onclick="irAInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Seguimiento</p></div>
+    ${renderTabBar('pedidos')}
+    <div class="header"><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Seguimiento</p></div>
+    ${bannerHoy}
     <div class="card"><h2>🔍 Filtros</h2>
       <div class="form-row-full"><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
-      <div class="form-row-full"><label>Buscar cliente</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre"></div>
-      <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-top:10px;border-left:3px solid var(--meat-red);"><div style="font-size:12px;color:#666;">Por cobrar</div><div style="font-size:20px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPC)}</div></div>
+      <div class="form-row-full"><label>Buscar cliente o N° de pedido</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre o #12"></div>
+      <div class="form-row-full" style="margin-top:10px;"><label>Entrega</label>
+        <div class="fecha-filtros">
+          <button class="ff-btn ${filtroFecha==='todos'?'active':''}" onclick="cambiarFiltroFecha('todos')">Todos</button>
+          <button class="ff-btn ${filtroFecha==='hoy'?'active':''}" onclick="cambiarFiltroFecha('hoy')">Hoy</button>
+          <button class="ff-btn ${filtroFecha==='semana'?'active':''}" onclick="cambiarFiltroFecha('semana')">Esta semana</button>
+          <button class="ff-btn ${filtroFecha==='mes'?'active':''}" onclick="cambiarFiltroFecha('mes')">Este mes</button>
+        </div>
+      </div>
+      <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-top:12px;border-left:3px solid var(--meat-red);"><div style="font-size:12px;color:#666;">Por cobrar${filtroFecha!=='todos'||filtroEstado!=='todos'||filtroCliente?' (filtrado)':''}</div><div style="font-size:20px;font-weight:700;color:var(--meat-red);">$${formatNum(totalPC)}</div></div>
       ${(config && config.sheetsUrl) ? `<button class="btn btn-secondary" onclick="sincronizarCobrosConSheets()" style="margin-top:10px;width:100%;">🔄 Sincronizar cobros con Sheets</button>` : ''}
     </div>
     <div class="card"><h2>📋 Pedidos (${pf.length})</h2>${pf.length===0?'<div class="cart-empty">Sin resultados</div>':pf.map(p => renderPedidoCard(p)).join('')}</div>
-    <button class="btn btn-add" onclick="renderApp()" style="margin-top:10px;">← Volver</button>
   `;
   window.scrollTo(0, 0);
 }
@@ -2470,9 +2640,8 @@ function renderReportes() {
   }).join('');
 
   document.getElementById('app').innerHTML = `
+    ${renderTabBar('reportes')}
     <div class="header">
-      <button class="btn-back" onclick="renderApp()">← Volver</button>
-      <button class="btn-home" onclick="irAInicio()">🏠 Inicio</button>
       <img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo">
       <p>Reportes</p>
     </div>
@@ -2527,6 +2696,19 @@ function renderReportes() {
       </div>
       ${cobranzasHTML}
     </div>
+
+    <div class="card" style="margin-top:14px;"><h2>📄 Exportar</h2>
+      <div class="menu-buttons">
+        <button class="btn btn-secondary" onclick="abrirReporte()">📊 Reporte mensual (Google Sheet)</button>
+        <button class="btn btn-secondary" onclick="exportarPedidosExcel()">📥 Exportar a Excel</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px;"><h2>⚙️ Herramientas</h2>
+      <div class="menu-buttons">
+        <button class="btn btn-secondary" onclick="abrirConfig()">⚙️ Configuración</button>
+        <button class="btn btn-secondary" onclick="actualizarPrecios()">🔄 Actualizar precios</button>
+      </div>
+    </div>
   `;
   window.scrollTo(0, 0);
 }
@@ -2566,6 +2748,12 @@ function renderPedidoCard(p) {
   const c = cols[est] || cols.pendiente;
   const logTag = (p.logistica && p.logistica > 0) ? `<span style="font-size:10px;color:#5c6bc0;margin-left:4px;">🚚 +$${formatNum(p.logistica)}</span>` : '';
   const borradorTag = pedidoEsBorrador(p) ? `<span style="background:#fff3e0; color:#e65100; font-size:10px; font-weight:700; padding:3px 8px; border-radius:10px; border:1px solid #f57c00;">📝 BORRADOR</span>` : '';
+  const rf = rangoFechas(), ed = edate(p);
+  const entregaTag = ed === rf.hoy
+    ? `<span style="background:#f57c00;color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">🔥 HOY</span>`
+    : ed === rf.manana
+    ? `<span style="background:#fb8c00;color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">MAÑANA</span>`
+    : '';
   // CAMBIO 3: mostrar tipo de envío y fecha/horario en la card
   const envioTag = p.tipoEnvio === 'delivery'
     ? `<div style="font-size:11px;color:#1565c0;margin-top:3px;">🚚 Delivery · ${formatFecha(p.fechaEntrega)} · ⏰ ${p.horario||''}</div>`
@@ -2578,7 +2766,7 @@ function renderPedidoCard(p) {
     : '';
   return `<div style="background:${c.bg};border-left:4px solid ${c.border};padding:12px;border-radius:8px;margin-bottom:10px;">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
-      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${p.sheetNum ? `<span style="background:var(--navy);color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">#${p.sheetNum}</span>` : ''}<div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${borradorTag}${logTag}</div>
+      <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${p.sheetNum ? `<span style="background:var(--navy);color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">#${p.sheetNum}</span>` : ''}<div style="font-weight:700;color:var(--navy);font-size:15px;">${escapeHtml(p.cliente)}</div><span style="background:${c.chipBg};color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;">${c.label}</span>${entregaTag}${borradorTag}${logTag}</div>
       <div style="font-size:11px;color:#666;margin-top:4px;">${formatFecha(p.fecha)} · ${p.vendedor||''} · ${p.items.length} ítem${p.items.length!==1?'s':''}</div>
       ${envioTag}
       ${metodoPagoTag}
@@ -2593,6 +2781,7 @@ function renderPedidoCard(p) {
     </div></div>`;
 }
 function cambiarFiltroEstado(v) { filtroEstado = v; renderPedidos(); }
+function cambiarFiltroFecha(v) { filtroFecha = v; renderPedidos(); }
 function cambiarFiltroCliente(v) { filtroCliente = v; clearTimeout(window._ft); window._ft = setTimeout(() => renderPedidos(), 300); }
 function cambiarEstadoPedido(est) {
   document.getElementById('estadoPedido').value = est;
