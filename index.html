@@ -2377,7 +2377,13 @@ function toggleClienteExpandido(nombre) {
 
 function _aniosConPedidos() {
   const set = new Set();
-  pedidosCombinados().forEach(p => { if (p.fecha) set.add(new Date(p.fecha).getFullYear()); });
+  const maxAnio = new Date().getFullYear() + 1;
+  pedidosCombinados().forEach(p => {
+    if (!p.fecha) return;
+    const y = new Date(p.fecha).getFullYear();
+    // Ignorar fechas vacías o mal cargadas (NaN) o fuera de rango (LF nació en 2015)
+    if (Number.isFinite(y) && y >= 2015 && y <= maxAnio) set.add(y);
+  });
   return Array.from(set).sort((a, b) => b - a);
 }
 
