@@ -219,6 +219,11 @@ input[readonly] { background: #f5f5f5; }
 .btn-move { background: transparent; color: var(--navy); border: none; cursor: pointer; padding: 0 6px; font-size: 11px; line-height: 1.1; border-radius: 4px; opacity: 0.55; }
 .btn-move:hover:not(:disabled) { background: var(--cream); opacity: 1; }
 .btn-move:disabled { opacity: 0.15; cursor: default; }
+.cart-item[draggable="true"] { cursor: grab; }
+.drag-handle { color: var(--text-muted); opacity: 0.4; font-size: 16px; cursor: grab; user-select: none; line-height: 1; padding-right: 2px; }
+.cart-item.dragging { opacity: 0.4; cursor: grabbing; }
+.cart-item.drag-over-top { box-shadow: inset 0 3px 0 0 var(--navy); }
+.cart-item.drag-over-bottom { box-shadow: inset 0 -3px 0 0 var(--navy); }
 
 /* === LOGÍSTICA CART ITEM === */
 .cart-item-logistica {
@@ -1798,6 +1803,48 @@ function moverItem(idx, dir) {
   actualizarTotales();
 }
 
+// Reordenar arrastrando con el mouse (drag & drop nativo)
+let dragSrcIdx = null;
+function dragStart(e, idx) {
+  dragSrcIdx = idx;
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', String(idx)); } catch (_) {}
+  e.currentTarget.classList.add('dragging');
+}
+function dragOver(e, idx) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const el = e.currentTarget;
+  document.querySelectorAll('.cart-item.drag-over-top, .cart-item.drag-over-bottom')
+    .forEach(x => x.classList.remove('drag-over-top', 'drag-over-bottom'));
+  if (idx === dragSrcIdx) return;
+  const rect = el.getBoundingClientRect();
+  const after = (e.clientY - rect.top) > rect.height / 2;
+  el.classList.add(after ? 'drag-over-bottom' : 'drag-over-top');
+}
+function dragLeave(e) {
+  e.currentTarget.classList.remove('drag-over-top', 'drag-over-bottom');
+}
+function dragDrop(e, idx) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (dragSrcIdx === null || dragSrcIdx === idx) return dragEnd(e);
+  const rect = e.currentTarget.getBoundingClientRect();
+  const after = (e.clientY - rect.top) > rect.height / 2;
+  let target = after ? idx + 1 : idx;
+  const item = carrito.splice(dragSrcIdx, 1)[0];
+  if (dragSrcIdx < target) target--;
+  carrito.splice(target, 0, item);
+  dragSrcIdx = null;
+  renderCarrito();
+  actualizarTotales();
+}
+function dragEnd(e) {
+  dragSrcIdx = null;
+  document.querySelectorAll('.cart-item.dragging, .cart-item.drag-over-top, .cart-item.drag-over-bottom')
+    .forEach(x => x.classList.remove('dragging', 'drag-over-top', 'drag-over-bottom'));
+}
+
 function setEstadoPedidoDefault(estado) {
   estadoPedidoDefault = estado;
   // Sincronizar visual de los botones a nivel pedido
@@ -1842,7 +1889,10 @@ function renderCarrito() {
     const varianteTag = item.variante ? '<span class="estado-tag" style="background:var(--cream); color:var(--navy);">' + escapeHtml(item.variante) + '</span>' : '';
     const borderStyle = esBorrador ? 'border-left:3px solid #f57c00;' : '';
     return `
-      <div class="cart-item" style="${borderStyle}">
+      <div class="cart-item" style="${borderStyle}" draggable="true" data-idx="${idx}"
+           ondragstart="dragStart(event, ${idx})" ondragover="dragOver(event, ${idx})"
+           ondragleave="dragLeave(event)" ondrop="dragDrop(event, ${idx})" ondragend="dragEnd(event)">
+        <span class="drag-handle" title="Arrastrá para reordenar">⠿</span>
         <div class="cart-item-info">
           <div class="cart-item-name">${escapeHtml(item.producto)}${varianteTag}${estadoTag}${manualTag}</div>
           <div class="cart-item-detail">${cantTxt} ${precioTxt}</div>
