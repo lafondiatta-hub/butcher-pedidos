@@ -2101,6 +2101,7 @@ function renderResumen(p) {
     </div>
     <div class="actions">
       <button class="btn btn-primary" onclick="descargarImagen()">📸 Descargar imagen</button>
+      <button class="btn btn-secondary" onclick="copiarImagen(this)">📋 Copiar imagen</button>
       <button class="btn btn-success" onclick="compartirWhatsApp()">💬 WhatsApp</button>
     </div>
     ${p._id ? `<button class="btn btn-secondary" onclick="abrirEdicionPedido('${p._id}')" style="margin-top:10px;">✏️ Editar pedido (kg / precios)</button>` : ''}
@@ -2150,6 +2151,27 @@ function descargarImagen() {
     const link = document.createElement('a'); link.download = 'Butcher_' + p.cliente.replace(/\s+/g, '_') + '_' + p.fecha + '.png'; link.href = canvas.toDataURL('image/png'); link.click();
     showToast('Imagen descargada ✓', false, 'success');
   });
+}
+
+function copiarImagen(btn) {
+  const el = document.getElementById('resumenCaptura');
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Copiando...'; }
+  const restaurar = () => { if (btn) { btn.disabled = false; btn.innerHTML = original; } };
+  html2canvas(el, { scale: 2, backgroundColor: '#fff', useCORS: true }).then(canvas => {
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      restaurar();
+      showToast('Tu navegador no permite copiar. Usá "Descargar imagen".', true);
+      return;
+    }
+    canvas.toBlob(blob => {
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(() => {
+        showToast('Imagen copiada ✓ Pegala en WhatsApp', false, 'success');
+      }).catch(() => {
+        showToast('No se pudo copiar. Usá "Descargar imagen".', true);
+      }).finally(restaurar);
+    }, 'image/png');
+  }).catch(() => { restaurar(); showToast('Error al generar la imagen', true); });
 }
 
 function compartirWhatsApp() {
