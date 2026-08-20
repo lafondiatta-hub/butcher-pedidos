@@ -202,6 +202,10 @@ input[readonly] { background: #f5f5f5; }
 .estado-tag { font-size: 11px; padding: 2px 6px; border-radius: 8px; margin-left: 6px; font-weight: 600; display: inline-block; }
 .estado-tag-fresco { background: #fbeaea; color: var(--meat-red); }
 .estado-tag-congelado { background: #e3f2fd; color: #1976d2; }
+.estado-tag-excepcion { background: #fff3e0; color: #e65100; border: 1px dashed #f57c00; }
+.estado-tag-bonif { background: #e8f5e9; color: #1b5e20; }
+.estado-prod-btn.selected[data-sincargo] { border-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+.estado-prod-btn.selected[data-variante] { border-color: var(--navy); background: var(--cream); color: var(--navy); }
 .btn-danger-small { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 18px; border: none; cursor: pointer; border-radius: 4px; }
 .btn-danger-small:hover { background: #ffebee; }
 .btn-edit-small { background: transparent; color: var(--navy); padding: 4px 8px; font-size: 16px; border: none; cursor: pointer; border-radius: 4px; }
@@ -436,20 +440,13 @@ input[readonly] { background: #f5f5f5; }
           <div id="manualSugerenciasLista"></div>
         </div>
       </div>
-      <div class="form-row">
-        <div>
-          <label>Tipo</label>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-            <button type="button" class="tipo-pago-btn selected" id="btnTipoKg" onclick="seleccionarTipoManual('kg')">🥩 Por kg</button>
-            <button type="button" class="tipo-pago-btn" id="btnTipoUnidad" onclick="seleccionarTipoManual('unidad')">📦 Por unidad</button>
-          </div>
-          <input type="hidden" id="manualTipo" value="kg">
+      <div class="form-row-full">
+        <label>Tipo</label>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <button type="button" class="tipo-pago-btn selected" id="btnTipoKg" onclick="seleccionarTipoManual('kg')">🥩 Por kg</button>
+          <button type="button" class="tipo-pago-btn" id="btnTipoUnidad" onclick="seleccionarTipoManual('unidad')">📦 Por unidad</button>
         </div>
-        <div>
-          <label>Precio <span style="font-weight:400; text-transform:none; color:#999;">(opcional)</span></label>
-          <input type="number" id="manualPrecio" step="0.01" min="0" placeholder="Dejá vacío si no sabés">
-          <div class="hint">Si no lo sabés ahora, lo completás después editando</div>
-        </div>
+        <input type="hidden" id="manualTipo" value="kg">
       </div>
     </div>
 
@@ -459,6 +456,17 @@ input[readonly] { background: #f5f5f5; }
       <input type="number" id="inputCantidad" step="0.001" min="0" placeholder="0">
       <div class="hint" id="hintPrecio"></div>
       <div class="hint" style="margin-top:6px; color:#f57c00;">💡 Dejá en 0 o vacío si todavía no pesaste/contaste — queda como <b>borrador</b> y lo completás después</div>
+    </div>
+
+    <!-- PRECIO DEL ÍTEM (editable en cualquier producto + bonificar) -->
+    <div class="form-row-full" id="precioItemBox" style="display:none; margin-top:8px;">
+      <label>Precio unitario</label>
+      <div style="display:grid; grid-template-columns:1fr auto; gap:8px;">
+        <input type="number" id="inputPrecioItem" step="0.01" min="0" placeholder="0" oninput="onPrecioItemInput()">
+        <button type="button" class="estado-prod-btn" id="btnSinCargo" data-sincargo="1" onclick="toggleSinCargo()">🎁 Sin cargo</button>
+      </div>
+      <input type="hidden" id="inputSinCargo" value="0">
+      <div class="hint" id="hintPrecioItem"></div>
     </div>
 
     <!-- ESTADO DEL PRODUCTO -->
@@ -477,6 +485,16 @@ input[readonly] { background: #f5f5f5; }
       <label id="varianteProductoLabel">Variante</label>
       <div id="varianteProductoOpciones" style="display:grid; gap:8px;"></div>
       <input type="hidden" id="inputVarianteProducto" value="">
+    </div>
+
+    <!-- DESGLOSE DE UNIDADES (pan: alemancitos / figazzitas) -->
+    <div class="form-row-full" id="desglosePanBox" style="display:none; margin-top:8px;">
+      <label>Detalle de unidades <span style="font-weight:400; text-transform:none; color:#999;">(opcional)</span></label>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <input type="number" id="inputDesgloseAlem" min="0" step="1" placeholder="Alemancitos (u)">
+        <input type="number" id="inputDesgloseFiga" min="0" step="1" placeholder="Figazzitas (u)">
+      </div>
+      <div class="hint" style="margin-top:6px;">💡 1 kg ≈ 30 figazzas</div>
     </div>
 
     <div class="row-2" style="margin-top: 16px;">
@@ -629,7 +647,7 @@ let clientes = [];
 let listasDisponibles = [];
 let carrito = [];
 let logisticaMonto = 0;
-let estadoPedidoDefault = 'fresco'; // 'fresco' | 'congelado' | 'mixto'
+let estadoPedidoDefault = 'fresco'; // base del pedido: 'fresco' | 'congelado' (los ítems que difieren son excepciones)
 let clienteSeleccionado = null;
 let firebaseListo = false;
 let unsubscribers = [];
@@ -646,6 +664,7 @@ let pedidoOriginalSheets = null; // { cliente, fecha } ANTES de editar — para 
 let horarioPersonalizado = '';
 // MODO MANUAL DEL MODAL AGREGAR (Fase 1B)
 let agregandoManual = false;
+let variantesPanActivas = false;
 
 if (window.firebaseReady) { firebaseListo = true; iniciarApp(); }
 else { window.addEventListener('firebase-ready', () => { firebaseListo = true; iniciarApp(); }); }
@@ -1184,13 +1203,12 @@ function renderApp() {
     <div class="card">
       <h2>🛒 Productos del Pedido</h2>
       <div style="margin-bottom:10px;">
-        <div style="font-size:11px;font-weight:600;color:#666;letter-spacing:0.5px;margin-bottom:6px;">ESTADO POR DEFECTO (aplica a todo el pedido)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+        <div style="font-size:11px;font-weight:600;color:#666;letter-spacing:0.5px;margin-bottom:6px;">ESTADO DEL PEDIDO (aplica a todos los ítems)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
           <button type="button" class="estado-prod-btn selected" data-pedido-estado="fresco" onclick="setEstadoPedidoDefault('fresco')">🥩 Fresco</button>
           <button type="button" class="estado-prod-btn" data-pedido-estado="congelado" onclick="setEstadoPedidoDefault('congelado')">❄️ Congelado</button>
-          <button type="button" class="estado-prod-btn" data-pedido-estado="mixto" onclick="setEstadoPedidoDefault('mixto')">🔀 Mixto</button>
         </div>
-        <div style="font-size:11px;color:#888;margin-top:6px;">Cambiarlo aplica a los ítems actuales y a los próximos. En "Mixto" se respeta el estado de cada ítem.</div>
+        <div style="font-size:11px;color:#888;margin-top:6px;">Si algún ítem va distinto, cambiale el estado al editarlo: queda marcado como <b>excepción</b> en el resumen, el WhatsApp y la ficha de Calendar.</div>
       </div>
       <div id="cartList"><div class="cart-empty">Todavía no agregaste productos</div></div>
       <button class="btn btn-add" onclick="abrirModalAgregar()">+ Agregar Producto</button>
@@ -1371,6 +1389,7 @@ function abrirModalAgregar() {
   document.getElementById('inputBuscarProducto').value = '';
   document.getElementById('inputCantidad').value = '';
   document.getElementById('labelCantidadBox').style.display = 'none';
+  document.getElementById('precioItemBox').style.display = 'none';
   document.getElementById('productoSelectedBox').classList.remove('active');
   document.getElementById('productoSuggestions').classList.remove('active');
   document.getElementById('inputBuscarProducto').style.display = '';
@@ -1379,10 +1398,13 @@ function abrirModalAgregar() {
   document.getElementById('seccionBuscarCatalogo').style.display = '';
   document.getElementById('seccionManual').style.display = 'none';
   document.getElementById('manualNombre').value = '';
-  document.getElementById('manualPrecio').value = '';
   document.getElementById('manualTipo').value = 'kg';
   document.getElementById('btnTipoKg').classList.add('selected');
   document.getElementById('btnTipoUnidad').classList.remove('selected');
+  // Reset precio y desglose
+  setPrecioItem(0, 0, 'kg', false);
+  precargarDesglosePan(null);
+  document.getElementById('desglosePanBox').style.display = 'none';
   // Reset estado: default fresco
   document.getElementById('estadoProductoBox').style.display = 'none';
   seleccionarEstadoProducto(estadoPedidoDefault === 'mixto' ? 'fresco' : estadoPedidoDefault);
@@ -1397,6 +1419,7 @@ function activarModoManual() {
   document.getElementById('seccionBuscarCatalogo').style.display = 'none';
   document.getElementById('seccionManual').style.display = 'block';
   document.getElementById('labelCantidadBox').style.display = 'block';
+  document.getElementById('precioItemBox').style.display = 'block';
   document.getElementById('estadoProductoBox').style.display = 'block';
   // Setear label de cantidad según tipo actual
   aplicarTipoEnLabelCantidad(document.getElementById('manualTipo').value);
@@ -1409,6 +1432,7 @@ function volverAlBuscadorCatalogo() {
   document.getElementById('seccionBuscarCatalogo').style.display = '';
   document.getElementById('seccionManual').style.display = 'none';
   document.getElementById('labelCantidadBox').style.display = 'none';
+  document.getElementById('precioItemBox').style.display = 'none';
   document.getElementById('inputBuscarProducto').value = '';
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 50);
 }
@@ -1477,9 +1501,62 @@ function seleccionarTipoManual(tipo) {
 
 function seleccionarEstadoProducto(estado) {
   document.getElementById('inputEstadoProducto').value = estado;
-  document.querySelectorAll('.estado-prod-btn').forEach(b => b.classList.remove('selected'));
-  const btn = document.querySelector('.estado-prod-btn[data-estado="' + estado + '"]');
+  document.querySelectorAll('#estadoProductoBox .estado-prod-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.querySelector('#estadoProductoBox .estado-prod-btn[data-estado="' + estado + '"]');
   if (btn) btn.classList.add('selected');
+}
+
+/* ============ PRECIO DEL ÍTEM (editable + sin cargo) ============ */
+function setPrecioItem(precio, precioLista, tipo, sinCargo) {
+  const inp = document.getElementById('inputPrecioItem');
+  inp.value = (precio > 0) ? precio : '';
+  document.getElementById('hintPrecioItem').textContent = (precioLista > 0)
+    ? '📋 Precio de lista: $' + formatNum(precioLista) + '/' + (tipo || 'kg')
+    : '';
+  setSinCargo(!!sinCargo);
+}
+
+function setSinCargo(activo) {
+  const inp = document.getElementById('inputPrecioItem');
+  document.getElementById('inputSinCargo').value = activo ? '1' : '0';
+  document.getElementById('btnSinCargo').classList.toggle('selected', activo);
+  inp.disabled = activo;
+  if (activo) { if (inp.value !== '0') inp.dataset.prev = inp.value; inp.value = '0'; }
+  else if (inp.value === '0') { inp.value = inp.dataset.prev || ''; }
+}
+
+function toggleSinCargo() { setSinCargo(document.getElementById('inputSinCargo').value !== '1'); }
+
+// Si tocan el precio a mano, deja de estar bonificado
+function onPrecioItemInput() {
+  if (document.getElementById('inputSinCargo').value === '1') setSinCargo(false);
+}
+
+/* ============ DESGLOSE DE PANIFICADOS ============ */
+function actualizarDesglosePan(variante) {
+  const box = document.getElementById('desglosePanBox');
+  if (!variantesPanActivas) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  const alem = document.getElementById('inputDesgloseAlem');
+  const figa = document.getElementById('inputDesgloseFiga');
+  alem.style.display = (variante === 'Figazzita') ? 'none' : '';
+  figa.style.display = (variante === 'Alemancito') ? 'none' : '';
+  if (variante === 'Figazzita') alem.value = '';
+  if (variante === 'Alemancito') figa.value = '';
+}
+
+function leerDesglosePan() {
+  const box = document.getElementById('desglosePanBox');
+  if (!box || box.style.display === 'none') return null;
+  const a = parseInt(document.getElementById('inputDesgloseAlem').value) || 0;
+  const f = parseInt(document.getElementById('inputDesgloseFiga').value) || 0;
+  if (!a && !f) return null;
+  return { alemancito: a, figazzita: f };
+}
+
+function precargarDesglosePan(desglose) {
+  document.getElementById('inputDesgloseAlem').value = (desglose && desglose.alemancito > 0) ? desglose.alemancito : '';
+  document.getElementById('inputDesgloseFiga').value = (desglose && desglose.figazzita > 0) ? desglose.figazzita : '';
 }
 
 // Renderizar selector de variantes para un producto (si tiene)
@@ -1487,11 +1564,14 @@ function configurarVariantesParaProducto(nombreProducto, varianteActual) {
   const box = document.getElementById('varianteProductoBox');
   const lista = document.getElementById('varianteProductoOpciones');
   const v = obtenerVariantesParaProducto(nombreProducto);
+  variantesPanActivas = !!(v && v.pan);
   if (!v) {
     box.style.display = 'none';
+    document.getElementById('desglosePanBox').style.display = 'none';
     document.getElementById('inputVarianteProducto').value = '';
     return;
   }
+  document.getElementById('varianteProductoLabel').textContent = v.pan ? 'Tipo de pan' : 'Variante';
   // Las opciones (Clásica, Sin membrana, etc.) + "Sin indicar"
   const opciones = [...v.opciones, ''];
   const cols = opciones.length;
@@ -1501,8 +1581,8 @@ function configurarVariantesParaProducto(nombreProducto, varianteActual) {
     return `<button type="button" class="estado-prod-btn" data-variante="${escapeHtml(op)}" onclick="seleccionarVarianteProducto('${escapeHtml(op).replace(/'/g, '&#39;')}')">${escapeHtml(label)}</button>`;
   }).join('');
   box.style.display = 'block';
-  // Default: variante actual del item, o la primera opción si es nuevo
-  const variante = (typeof varianteActual === 'string') ? varianteActual : v.opciones[0];
+  // Default: variante actual del item, o la sugerida por el nombre si es nuevo
+  const variante = (typeof varianteActual === 'string') ? varianteActual : (v.defecto || v.opciones[0]);
   seleccionarVarianteProducto(variante);
 }
 
@@ -1511,6 +1591,7 @@ function seleccionarVarianteProducto(variante) {
   document.querySelectorAll('#varianteProductoOpciones .estado-prod-btn').forEach(b => b.classList.remove('selected'));
   const btn = document.querySelector('#varianteProductoOpciones .estado-prod-btn[data-variante="' + (variante || '') + '"]');
   if (btn) btn.classList.add('selected');
+  actualizarDesglosePan(variante);
 }
 
 function aplicarTipoEnLabelCantidad(tipo) {
@@ -1539,13 +1620,12 @@ function abrirModalEditar(idx) {
   const esManual = !!item.manual;
   const sinPrecio = !item.precio || item.precio <= 0;
 
-  if (esManual || sinPrecio) {
+  if (esManual || (sinPrecio && !item.sinCargo)) {
     // Modo manual: nombre + tipo + precio editables
     agregandoManual = true;
     document.getElementById('seccionBuscarCatalogo').style.display = 'none';
     document.getElementById('seccionManual').style.display = 'block';
     document.getElementById('manualNombre').value = item.producto || '';
-    document.getElementById('manualPrecio').value = item.precio > 0 ? item.precio : '';
     seleccionarTipoManual(item.tipo || 'kg');
     sugerirDelCatalogo(); // mostrar matches del catálogo al abrir edición de manual
   } else {
@@ -1566,14 +1646,19 @@ function abrirModalEditar(idx) {
     box.classList.add('active');
   }
 
+  // Precio del ítem (precarga) — editable en cualquier producto
+  setPrecioItem(item.precio, item.precioLista || 0, item.tipo, item.sinCargo);
   // Estado del producto (precarga)
   document.getElementById('estadoProductoBox').style.display = 'block';
   seleccionarEstadoProducto(item.estado || 'fresco');
-  // Variante del producto (entraña, etc.) — precarga
+  // Variante + desglose de panificados — precarga (después de configurar variantes,
+  // porque al elegir variante se limpian los campos que no corresponden)
   configurarVariantesParaProducto(item.producto, item.variante);
+  precargarDesglosePan(item.desglose);
 
   // Cantidad (común a ambos)
   document.getElementById('labelCantidadBox').style.display = 'block';
+  document.getElementById('precioItemBox').style.display = 'block';
   if (item.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
     document.getElementById('inputCantidad').step = '0.001';
@@ -1656,7 +1741,10 @@ function seleccionarProducto(idx) {
   document.getElementById('selProdPrice').textContent = '$' + formatNum(precio) + '/' + p.tipo;
   box.classList.add('active');
   document.getElementById('labelCantidadBox').style.display = 'block';
+  document.getElementById('precioItemBox').style.display = 'block';
   document.getElementById('estadoProductoBox').style.display = 'block';
+  setPrecioItem(precio, precio, p.tipo, false);
+  precargarDesglosePan(null);
   configurarVariantesParaProducto(p.nombre);
   if (p.tipo === 'kg') {
     document.getElementById('labelCantidad').textContent = 'Peso (kg)';
@@ -1677,6 +1765,7 @@ function limpiarProductoSeleccionado() {
   productoSeleccionadoIdx = null;
   document.getElementById('productoSelectedBox').classList.remove('active');
   document.getElementById('labelCantidadBox').style.display = 'none';
+  document.getElementById('precioItemBox').style.display = 'none';
   document.getElementById('inputBuscarProducto').style.display = '';
   document.querySelector('.producto-search-icon').style.display = '';
   document.getElementById('inputBuscarProducto').value = '';
@@ -1690,29 +1779,37 @@ function confirmarAgregar(seguirCargando) {
   const cant = (cantRaw === '' || cantRaw === null) ? 0 : (parseFloat(cantRaw) || 0);
   // Estado del producto (puede ser 'fresco', 'congelado' o '')
   const estadoProd = document.getElementById('inputEstadoProducto').value || '';
-  // Variante del producto (Clásica, Sin membrana, etc. o '')
+  // Variante del producto (Clásica, Alemancito, etc. o '')
   const varianteProd = document.getElementById('inputVarianteProducto').value || '';
+  // Precio del ítem: editable siempre, o bonificado
+  const sinCargo = document.getElementById('inputSinCargo').value === '1';
+  const precioRaw = document.getElementById('inputPrecioItem').value;
+  const precio = sinCargo ? 0 : ((precioRaw === '' || precioRaw === null) ? 0 : (parseFloat(precioRaw) || 0));
+  // Desglose de panificados (alemancitos / figazzitas)
+  const desglose = leerDesglosePan();
+  // Un ítem bonificado NO es borrador por no tener precio
+  const pendiente = (!cant || cant <= 0) || (!sinCargo && (!precio || precio <= 0));
 
   // === MODO EDICIÓN DE ÍTEM EXISTENTE ===
   if (editandoItemIdx >= 0) {
     const item = carrito[editandoItemIdx];
-    // Si estamos editando en modo manual, leer nombre/tipo/precio del form manual
+    // Si estamos editando en modo manual, leer nombre/tipo del form manual
     if (agregandoManual) {
       const nombre = document.getElementById('manualNombre').value.trim();
-      const tipo = document.getElementById('manualTipo').value || 'kg';
-      const precioRaw = document.getElementById('manualPrecio').value;
-      const precio = (precioRaw === '' || precioRaw === null) ? 0 : (parseFloat(precioRaw) || 0);
       if (!nombre) { showToast('Poné un nombre al producto', true); return; }
       item.producto = nombre;
-      item.tipo = tipo;
-      item.precio = precio;
+      item.tipo = document.getElementById('manualTipo').value || 'kg';
       item.manual = true;
     }
     item.pesoOCantidad = cant;
-    item.subtotal = cant * (item.precio || 0);
-    item.pendiente = (!cant || cant <= 0) || (!item.precio || item.precio <= 0);
+    item.precio = precio;
+    item.sinCargo = sinCargo;
+    item.precioEditado = !sinCargo && item.precioLista > 0 && precio !== item.precioLista;
+    item.subtotal = sinCargo ? 0 : cant * precio;
+    item.pendiente = pendiente;
     item.estado = estadoProd;
     item.variante = varianteProd;
+    item.desglose = desglose;
     renderCarrito();
     actualizarTotales();
     cerrarModal();
@@ -1723,21 +1820,21 @@ function confirmarAgregar(seguirCargando) {
   // === MODO AGREGAR MANUAL ===
   if (agregandoManual) {
     const nombre = document.getElementById('manualNombre').value.trim();
-    const tipo = document.getElementById('manualTipo').value || 'kg';
-    const precioRaw = document.getElementById('manualPrecio').value;
-    const precio = (precioRaw === '' || precioRaw === null) ? 0 : (parseFloat(precioRaw) || 0);
     if (!nombre) { showToast('Poné un nombre al producto', true); return; }
-    const pendiente = (!cant || cant <= 0) || (!precio || precio <= 0);
     carrito.push({
       producto: nombre,
-      tipo,
+      tipo: document.getElementById('manualTipo').value || 'kg',
       pesoOCantidad: cant,
       precio,
-      subtotal: cant * precio,
+      precioLista: 0,
+      subtotal: sinCargo ? 0 : cant * precio,
       manual: true,
       pendiente,
+      sinCargo,
+      precioEditado: false,
       estado: estadoProd,
-      variante: varianteProd
+      variante: varianteProd,
+      desglose
     });
     renderCarrito(); actualizarTotales();
     if (seguirCargando) { resetFormularioAgregar(); showToast(pendiente ? '✓ Agregado como borrador (cargá el siguiente)' : '✓ Agregado (cargá el siguiente)'); }
@@ -1747,17 +1844,21 @@ function confirmarAgregar(seguirCargando) {
 
   // === MODO AGREGAR DESDE CATÁLOGO ===
   if (productoSeleccionadoIdx === null) { showToast('Seleccioná un producto o agregalo manualmente', true); return; }
-  const p = productos[productoSeleccionadoIdx], precio = p.precios[config.listaActiva];
-  const pendiente = (!cant || cant <= 0);
+  const p = productos[productoSeleccionadoIdx];
+  const precioLista = p.precios[config.listaActiva] || 0;
   carrito.push({
     producto: p.nombre,
     tipo: p.tipo,
     pesoOCantidad: cant,
     precio,
-    subtotal: cant * precio,
+    precioLista,
+    subtotal: sinCargo ? 0 : cant * precio,
     pendiente,
+    sinCargo,
+    precioEditado: !sinCargo && precioLista > 0 && precio !== precioLista,
     estado: estadoProd,
-    variante: varianteProd
+    variante: varianteProd,
+    desglose
   });
   renderCarrito(); actualizarTotales();
   if (seguirCargando) { resetFormularioAgregar(); showToast(pendiente ? '✓ Agregado como borrador (cargá el siguiente)' : '✓ Agregado (cargá el siguiente)'); }
@@ -1773,6 +1874,7 @@ function resetFormularioAgregar() {
   document.getElementById('inputBuscarProducto').value = '';
   document.getElementById('inputCantidad').value = '';
   document.getElementById('labelCantidadBox').style.display = 'none';
+  document.getElementById('precioItemBox').style.display = 'none';
   document.getElementById('productoSelectedBox').classList.remove('active');
   document.getElementById('productoSuggestions').classList.remove('active');
   document.getElementById('inputBuscarProducto').style.display = '';
@@ -1781,10 +1883,12 @@ function resetFormularioAgregar() {
   document.getElementById('seccionBuscarCatalogo').style.display = '';
   document.getElementById('seccionManual').style.display = 'none';
   document.getElementById('manualNombre').value = '';
-  document.getElementById('manualPrecio').value = '';
   document.getElementById('manualTipo').value = 'kg';
   document.getElementById('btnTipoKg').classList.add('selected');
   document.getElementById('btnTipoUnidad').classList.remove('selected');
+  setPrecioItem(0, 0, 'kg', false);
+  precargarDesglosePan(null);
+  document.getElementById('desglosePanBox').style.display = 'none';
   document.getElementById('estadoProductoBox').style.display = 'none';
   seleccionarEstadoProducto(estadoPedidoDefault === 'mixto' ? 'fresco' : estadoPedidoDefault);
   setTimeout(() => document.getElementById('inputBuscarProducto').focus(), 50);
@@ -1851,11 +1955,11 @@ function setEstadoPedidoDefault(estado) {
   document.querySelectorAll('[data-pedido-estado]').forEach(b => {
     b.classList.toggle('selected', b.dataset.pedidoEstado === estado);
   });
-  // Propagar a items existentes salvo en 'mixto' (que respeta lo individual)
-  if (estado !== 'mixto') {
-    carrito.forEach(it => { it.estado = estado; });
-    renderCarrito();
-  }
+  // La base aplica a TODOS los ítems. Si había excepciones marcadas, avisamos que se pisaron.
+  const habiaExcepciones = hayExcepciones(carrito, estado);
+  carrito.forEach(it => { it.estado = estado; });
+  renderCarrito();
+  if (habiaExcepciones) showToast('Se aplicó ' + estadoTxt(estado) + ' a todos los ítems');
 }
 
 // renderCarrito — incluye botón editar + soporta items "borrador" (sin peso o sin precio)
@@ -1867,25 +1971,27 @@ function renderCarrito() {
   }
   let html = carrito.map((item, idx) => {
     const sinCant = !item.pesoOCantidad || item.pesoOCantidad <= 0;
-    const sinPrecio = !item.precio || item.precio <= 0;
+    const sinPrecio = !item.sinCargo && (!item.precio || item.precio <= 0);
     const esBorrador = sinCant || sinPrecio;
     const cantTxt = sinCant
       ? '<span style="color:#e65100; font-weight:600;">⏳ Pendiente de ' + (item.tipo === 'kg' ? 'pesar' : 'contar') + '</span>'
-      : (item.tipo === 'kg' ? item.pesoOCantidad.toFixed(3) + ' kg' : item.pesoOCantidad + ' u');
-    const precioTxt = sinPrecio
+      : formatCant(item);
+    const precioTxt = item.sinCargo
+      ? '<span style="color:#1b5e20; font-weight:600;">🎁 Sin cargo</span>'
+      : sinPrecio
       ? '<span style="color:#e65100;">Precio a definir</span>'
-      : '× $' + formatNum(item.precio);
+      : '× $' + formatNum(item.precio) + (item.precioEditado ? ' <span title="Precio modificado" style="color:#e65100;">✏️</span>' : '');
     const subtotalTxt = esBorrador
       ? '<span style="color:#e65100; font-size:12px; font-weight:600;">📝 BORRADOR</span>'
-      : '$' + formatNum(item.subtotal);
+      : (item.sinCargo ? '<span style="color:#1b5e20;">$0</span>' : '$' + formatNum(item.subtotal));
     const manualTag = item.manual ? '<span style="background:#fff3e0; color:#e65100; font-size:10px; padding:1px 6px; border-radius:8px; margin-left:6px;">✍️ Manual</span>' : '';
-    // Solo mostrar el estado por ítem cuando el pedido es Mixto.
-    // En Fresco/Congelado uniformes el indicador vive a nivel pedido.
-    const estadoTag = (estadoPedidoDefault === 'mixto')
-      ? (item.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩 Fresco</span>'
-        : item.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️ Congelado</span>'
-        : '')
+    // El estado por ítem se muestra sólo cuando es EXCEPCIÓN respecto de la base del pedido.
+    const estadoTag = esExcepcionEstado(item, estadoPedidoDefault)
+      ? '<span class="estado-tag estado-tag-excepcion">' + estadoTxt(item.estado) + '</span>'
       : '';
+    const bonifTag = item.sinCargo ? '<span class="estado-tag estado-tag-bonif">🎁 Bonificado</span>' : '';
+    const desgloseTxt = textoDesglose(item);
+    const desgloseHTML = desgloseTxt ? '<div style="font-size:11px; color:#666; font-style:italic;">' + escapeHtml(desgloseTxt) + '</div>' : '';
     const varianteTag = item.variante ? '<span class="estado-tag" style="background:var(--cream); color:var(--navy);">' + escapeHtml(item.variante) + '</span>' : '';
     const borderStyle = esBorrador ? 'border-left:3px solid #f57c00;' : '';
     return `
@@ -1894,8 +2000,9 @@ function renderCarrito() {
            ondragleave="dragLeave(event)" ondrop="dragDrop(event, ${idx})" ondragend="dragEnd(event)">
         <span class="drag-handle" title="Arrastrá para reordenar">⠿</span>
         <div class="cart-item-info">
-          <div class="cart-item-name">${escapeHtml(item.producto)}${varianteTag}${estadoTag}${manualTag}</div>
+          <div class="cart-item-name">${escapeHtml(item.producto)}${varianteTag}${estadoTag}${bonifTag}${manualTag}</div>
           <div class="cart-item-detail">${cantTxt} ${precioTxt}</div>
+          ${desgloseHTML}
         </div>
         <div class="cart-item-price">${subtotalTxt}</div>
         <div class="cart-item-actions">
@@ -2046,31 +2153,34 @@ function renderResumen(p) {
     : `<div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:10px 12px;border-radius:6px;margin-bottom:12px;font-size:13px;">
         🏪 <b>Retiro en local</b>
        </div>`;
+  const base = estadoBase(p);
   const itemsRows = p.items.map(i => {
     const sinCant = !i.pesoOCantidad || i.pesoOCantidad <= 0;
-    const sinPrecio = !i.precio || i.precio <= 0;
-    const kgCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3) : '-');
+    const sinPrecio = !i.sinCargo && (!i.precio || i.precio <= 0);
+    const kgCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='kg' ? formatKg(i.pesoOCantidad) : '-');
     const uCell = sinCant ? '<span style="color:#e65100;">⏳</span>' : (i.tipo==='unidad' ? i.pesoOCantidad : '-');
-    const precioCell = sinPrecio ? '<span style="color:#e65100;">A definir</span>' : '$' + formatNum(i.precio);
-    const subCell = (sinCant || sinPrecio) ? '<span style="color:#e65100; font-weight:700;">📝</span>' : '$' + formatNum(i.subtotal);
-    // Solo mostrar emoji por ítem si el pedido es Mixto
-    const estadoTag = (p.estadoDefault === 'mixto')
-      ? (i.estado === 'fresco' ? '<span class="estado-tag estado-tag-fresco">🥩</span>'
-        : i.estado === 'congelado' ? '<span class="estado-tag estado-tag-congelado">❄️</span>'
-        : '')
+    const precioCell = i.sinCargo ? '<span style="color:#1b5e20; font-weight:600;">Sin cargo</span>'
+      : sinPrecio ? '<span style="color:#e65100;">A definir</span>' : '$' + formatNum(i.precio);
+    const subCell = (sinCant || sinPrecio) ? '<span style="color:#e65100; font-weight:700;">📝</span>'
+      : (i.sinCargo ? '<span style="color:#1b5e20; font-weight:700;">BONIFICADO</span>' : '$' + formatNum(i.subtotal));
+    // El estado por ítem sólo se muestra cuando es EXCEPCIÓN respecto de la base del pedido
+    const estadoTag = esExcepcionEstado(i, base)
+      ? `<span class="estado-tag estado-tag-excepcion">${estadoTxt(i.estado)}</span>`
       : '';
     const varianteTxt = i.variante ? ` <span style="font-size:11px; color:#666; font-style:italic;">(${escapeHtml(i.variante)})</span>` : '';
-    return `<tr><td>${escapeHtml(i.producto)}${varianteTxt}${estadoTag}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
+    const desgloseTxt = textoDesglose(i);
+    const desgloseHTML = desgloseTxt ? `<div style="font-size:11px; color:#666; font-style:italic;">${escapeHtml(desgloseTxt)}</div>` : '';
+    return `<tr><td>${escapeHtml(i.producto)}${varianteTxt}${estadoTag}${desgloseHTML}</td><td class="num">${kgCell}</td><td class="num">${uCell}</td><td class="num">${precioCell}</td><td class="num bold">${subCell}</td></tr>`;
   }).join('');
   const tieneBorrador = pedidoEsBorrador(p);
   const banderaBorrador = tieneBorrador ? `<div style="background:#fff3e0; border-left:4px solid #f57c00; padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#e65100; font-weight:600;">📝 BORRADOR — hay items sin pesar o sin precio. El total final se confirma cuando completes los datos.</div>` : '';
-  const banderaEstado = p.estadoDefault === 'congelado'
-    ? `<div style="background:#e3f2fd; border-left:4px solid #1976d2; padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#0d47a1; font-weight:600;">❄️ Pedido CONGELADO</div>`
-    : p.estadoDefault === 'mixto'
+  const conExcepciones = hayExcepciones(p.items, base);
+  const notaExcepciones = conExcepciones ? ' <span style="font-weight:400;">— salvo lo marcado como excepción</span>' : '';
+  const banderaEstado = base === 'congelado'
+    ? `<div style="background:#e3f2fd; border-left:4px solid #1976d2; padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#0d47a1; font-weight:600;">❄️ Pedido CONGELADO${notaExcepciones}</div>`
+    : base === 'mixto'
     ? `<div style="background:#f3e5f5; border-left:4px solid #7b1fa2; padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#4a148c; font-weight:600;">🔀 Pedido MIXTO — el estado se indica por ítem</div>`
-    : (p.estadoDefault === 'fresco' || !p.estadoDefault)
-    ? `<div style="background:#fbeaea; border-left:4px solid var(--meat-red); padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#a01a1a; font-weight:600;">🥩 Pedido FRESCO</div>`
-    : '';
+    : `<div style="background:#fbeaea; border-left:4px solid var(--meat-red); padding:8px 14px; border-radius:6px; margin-bottom:12px; font-size:13px; color:#a01a1a; font-weight:600;">🥩 Pedido FRESCO${notaExcepciones}</div>`;
   const logisticaRow = (p.logistica && p.logistica > 0)
     ? `<tr style="background:#f0f4ff;"><td><b>🚚 Logística</b></td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num bold" style="color:#3949ab;">$${formatNum(p.logistica)}</td></tr>`
     : '';
@@ -2185,23 +2295,27 @@ function compartirWhatsApp() {
   } else {
     msg += `*Entrega:* 🏪 Retiro en local\n`;
   }
-  // Estado a nivel pedido cuando es uniforme (no Mixto)
-  if (p.estadoDefault === 'fresco' || !p.estadoDefault) msg += `*Estado:* 🥩 Fresco\n`;
-  else if (p.estadoDefault === 'congelado') msg += `*Estado:* ❄️ Congelado\n`;
+  // Estado del pedido: siempre explícito, con aviso si hay excepciones por ítem
+  const baseWA = estadoBase(p);
+  const excWA = hayExcepciones(p.items, baseWA);
+  if (baseWA === 'mixto') msg += `*Estado:* 🔀 Mixto — se indica por ítem\n`;
+  else msg += `*Estado:* ${estadoTxt(baseWA)}${excWA ? ' (salvo lo marcado)' : ''}\n`;
   msg += `\n*Detalle:*\n`;
   p.items.forEach(i => {
     const sinCant = !i.pesoOCantidad || i.pesoOCantidad <= 0;
-    const sinPrecio = !i.precio || i.precio <= 0;
-    const qty = sinCant ? '⏳ pendiente' : (i.tipo==='kg' ? i.pesoOCantidad.toFixed(3)+' kg' : i.pesoOCantidad+' u');
-    // Solo emoji por ítem si el pedido es Mixto
-    const estadoEmoji = (p.estadoDefault === 'mixto')
-      ? (i.estado === 'fresco' ? ' 🥩' : i.estado === 'congelado' ? ' ❄️' : '')
-      : '';
+    const sinPrecio = !i.sinCargo && (!i.precio || i.precio <= 0);
+    const qty = sinCant ? '⏳ pendiente' : formatCant(i);
+    // Emoji por ítem sólo cuando es excepción al estado del pedido
+    const estadoEmoji = esExcepcionEstado(i, baseWA) ? ' ' + estadoEmo(i.estado) : '';
     const varianteTxt = i.variante ? ' (' + i.variante + ')' : '';
-    if (sinCant || sinPrecio) {
-      msg += `• ${i.producto}${varianteTxt}${estadoEmoji} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
+    const desgloseTxt = textoDesglose(i);
+    const detalleTxt = desgloseTxt ? ' [' + desgloseTxt + ']' : '';
+    if (i.sinCargo) {
+      msg += `• ${i.producto}${varianteTxt}${estadoEmoji}${detalleTxt} - ${qty} — *🎁 Sin cargo*\n`;
+    } else if (sinCant || sinPrecio) {
+      msg += `• ${i.producto}${varianteTxt}${estadoEmoji}${detalleTxt} — ${qty} ${sinPrecio ? '· precio a definir' : ''} 📝\n`;
     } else {
-      msg += `• ${i.producto}${varianteTxt}${estadoEmoji} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
+      msg += `• ${i.producto}${varianteTxt}${estadoEmoji}${detalleTxt} - ${qty} × $${formatNum(i.precio)} = *$${formatNum(i.subtotal)}*\n`;
     }
   });
   if (pedidoEsBorrador(p)) msg += `\n📝 *Pedido en BORRADOR* — total final por confirmar.\n`;
@@ -2618,7 +2732,7 @@ function renderReportes() {
     ? '<div class="cart-empty">Sin ventas en este período</div>'
     : topCortes.map((c, i) => {
         const pct = (c.facturado / totalFactCortes) * 100;
-        const cant = c.kg > 0 ? c.kg.toFixed(3) + ' kg' : c.unidades + ' u';
+        const cant = c.kg > 0 ? formatKg(c.kg) + ' kg' : c.unidades + ' u';
         return `<div style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
             <span><b>${i+1}.</b> ${escapeHtml(c.nombre)} <span style="color:#666;font-size:11px;">· ${cant} · ${c.vecesPedido}x</span></span>
@@ -2796,7 +2910,7 @@ function renderReportes() {
     return `<div style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
         <span><b>${m.label}</b>${m.unidades>0?` <span style="color:#666;font-size:11px;">· ${m.unidades} u</span>`:''}</span>
-        <span style="font-weight:700;color:var(--meat-red);">${m.kg.toFixed(2)} kg</span>
+        <span style="font-weight:700;color:var(--meat-red);">${formatKg(m.kg)} kg</span>
       </div>
       <div style="background:#eee;border-radius:4px;height:10px;overflow:hidden;">
         <div style="background:var(--meat-red);height:100%;width:${pKg.toFixed(1)}%;"></div>
@@ -2832,7 +2946,7 @@ function renderReportes() {
       <h2>🥩 Consumo de carne <span style="font-size:11px;color:#666;font-weight:400;">kg vendidos por mes</span></h2>
       <div style="background:#fbeaea;padding:10px;border-radius:6px;text-align:center;margin-bottom:12px;border-left:3px solid var(--meat-red);">
         <div style="font-size:12px;color:#666;">Total ${periodo==='anio'?`${anioSel}`:'últimos 6 meses'}</div>
-        <div style="font-size:22px;font-weight:700;color:var(--meat-red);">${totalKg.toFixed(2)} kg</div>
+        <div style="font-size:22px;font-weight:700;color:var(--meat-red);">${formatKg(totalKg)} kg</div>
         ${totalUnidades>0?`<div style="font-size:11px;color:#666;">+ ${totalUnidades} unidades</div>`:''}
       </div>
       ${consumoHTML}
@@ -2905,7 +3019,11 @@ function renderClienteDetalle(nombre) {
 
 function pedidoEsBorrador(p) {
   if (!p || !p.items || !p.items.length) return false;
-  return p.items.some(it => !it.pesoOCantidad || it.pesoOCantidad <= 0 || !it.precio || it.precio <= 0 || it.pendiente);
+  return p.items.some(it => {
+    const sinCant = !it.pesoOCantidad || it.pesoOCantidad <= 0;
+    const sinPrecio = !it.sinCargo && (!it.precio || it.precio <= 0);
+    return sinCant || sinPrecio || it.pendiente;
+  });
 }
 
 function renderPedidoCard(p) {
@@ -3016,6 +3134,13 @@ function abrirEdicionPedido(id) {
   carrito = (p.items || []).map(it => ({ ...it }));
   logisticaMonto = p.logistica || 0;
   estadoPedidoDefault = p.estadoDefault || 'fresco';
+  // Pedidos viejos guardados como 'mixto': los migramos a base + excepciones,
+  // tomando como base el estado que tenga más ítems.
+  if (estadoPedidoDefault === 'mixto') {
+    const cong = carrito.filter(it => it.estado === 'congelado').length;
+    const fres = carrito.filter(it => it.estado === 'fresco').length;
+    estadoPedidoDefault = cong > fres ? 'congelado' : 'fresco';
+  }
   window._logisticaAgregada = (p.logistica || 0) > 0;
   tipoEnvio = p.tipoEnvio || 'retiro';
   // El horario puede ser uno de los predefinidos o un texto libre
@@ -3238,6 +3363,41 @@ async function eliminarPedido(id) {
 function formatNum(n) { return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function formatFecha(iso) { if (!iso) return ''; const [y,m,d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; }
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ===== Formato de cantidades ===== */
+// Kg sin ceros al pedo: 2 → "2" · 3.2 → "3,2" · 1.25 → "1,25"
+function formatKg(n) {
+  const v = Math.round((parseFloat(n) || 0) * 1000) / 1000;
+  return v.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+}
+// Cantidad con su unidad: "2 kg" / "6 u"
+function formatCant(item) {
+  return item.tipo === 'kg' ? formatKg(item.pesoOCantidad) + ' kg' : (item.pesoOCantidad + ' u');
+}
+
+/* ===== Estado fresco/congelado: base del pedido + excepciones por ítem ===== */
+// Base del pedido. Los pedidos viejos podían guardarse como 'mixto'.
+function estadoBase(p) { return (p && p.estadoDefault) || 'fresco'; }
+// Un ítem es EXCEPCIÓN cuando su estado difiere de la base del pedido.
+function esExcepcionEstado(item, base) {
+  if (!item || !item.estado) return false;
+  if (base === 'mixto') return true;   // pedidos viejos: se marcaba ítem por ítem
+  return item.estado !== base;
+}
+function estadoTxt(estado) { return estado === 'congelado' ? '❄️ Congelado' : estado === 'fresco' ? '🥩 Fresco' : ''; }
+function estadoEmo(estado) { return estado === 'congelado' ? '❄️' : estado === 'fresco' ? '🥩' : ''; }
+function hayExcepciones(items, base) { return (items || []).some(it => esExcepcionEstado(it, base)); }
+
+/* ===== Desglose de panificados ===== */
+// { alemancito: 60, figazzita: 36 } → "60 alemancitos + 36 figazzitas"
+function textoDesglose(item) {
+  const d = item && item.desglose;
+  if (!d) return '';
+  const partes = [];
+  if (d.alemancito > 0) partes.push(d.alemancito + ' alemancito' + (d.alemancito === 1 ? '' : 's'));
+  if (d.figazzita > 0) partes.push(d.figazzita + ' figazzita' + (d.figazzita === 1 ? '' : 's'));
+  return partes.join(' + ');
+}
 function showToast(msg, isErr, type) { const t = document.getElementById('toast'); t.textContent = msg; let cls = 'toast show'; if (isErr) cls += ' error'; else if (type === 'success') cls += ' success'; t.className = cls; setTimeout(() => t.classList.remove('show'), 3500); }
 
 /* ============================================================
@@ -3253,64 +3413,33 @@ const VARIANTES_PRODUCTO = {
   'entrana': ['Clásica', 'Sin membrana']  // sin tilde por si acaso
 };
 
+// Panificados: además de la variante permiten desglosar unidades de cada tipo.
+// El \b evita que enganche panceta / pancho / empanada.
+const PAN_REGEX = /\b(pan|panes|panificado|panificados|alemancito|alemancitos|figazza|figazzas|figazzita|figazzitas)\b/;
+const VARIANTES_PAN = ['Alemancito', 'Figazzita', 'Variado'];
+
 function obtenerVariantesParaProducto(nombre) {
   const n = normalizar(nombre || '');
   for (const key in VARIANTES_PRODUCTO) {
     if (n.indexOf(key) !== -1) return { key, opciones: VARIANTES_PRODUCTO[key] };
   }
-  return null;
-}
-
-// Mapeo de horarios predefinidos → [horaInicio, horaFin]
-const HORARIOS_RANGOS = {
-  '11 a 14 hs': [11, 14],
-  '13 a 17 hs': [13, 17],
-  '16 a 20 hs': [16, 20]
-};
-
-// Parsea un horario libre tipo "9 a 11 hs", "a las 18", "18:30", etc.
-function parsearHorarioLibre(horario) {
-  if (!horario) return null;
-  const h = String(horario).toLowerCase().trim();
-
-  // "X a Y hs" o "X a Y"
-  let m = h.match(/(\d{1,2})\s*[a\-–]\s*(\d{1,2})/);
-  if (m) {
-    const ini = parseInt(m[1]);
-    const fin = parseInt(m[2]);
-    if (ini >= 0 && ini <= 23 && fin >= 0 && fin <= 23 && fin > ini) return [ini, fin];
+  if (PAN_REGEX.test(n)) {
+    // Default según el nombre del producto; si es genérico ("Pan"), arranca en Alemancito
+    const defecto = /figazz/.test(n) ? 'Figazzita' : 'Alemancito';
+    return { key: 'pan', opciones: VARIANTES_PAN, pan: true, defecto };
   }
-
-  // "a las HH" o "HH:MM"
-  m = h.match(/(\d{1,2})(?::(\d{2}))?/);
-  if (m) {
-    const hh = parseInt(m[1]);
-    const mm = m[2] ? parseInt(m[2]) : 0;
-    if (hh >= 0 && hh <= 23) return [hh + mm/60, hh + 1 + mm/60]; // 1 hora de duración por defecto
-  }
-
   return null;
 }
 
 // Devuelve {start: Date, end: Date, allDay: bool} para un pedido.
+// Los pedidos de Butcher SIEMPRE se agendan como evento de todo el día;
+// el horario de entrega va en la descripción de la ficha, no en el bloque horario.
 function calcularFechaHoraCalendar(p) {
   const fechaIso = p.fechaEntrega || p.fecha;
   if (!fechaIso) return null;
   const [y, mo, d] = fechaIso.split('-').map(Number);
   // Construir como local (no UTC)
   const base = new Date(y, mo - 1, d);
-
-  // Si hay horario conocido (delivery o retiro), intentar rango
-  if (p.horario && p.horario !== 'Todo el día') {
-    let rango = HORARIOS_RANGOS[p.horario];
-    if (!rango) rango = parsearHorarioLibre(p.horario);
-    if (rango) {
-      const start = new Date(y, mo - 1, d, Math.floor(rango[0]), Math.round((rango[0] % 1) * 60));
-      const end = new Date(y, mo - 1, d, Math.floor(rango[1]), Math.round((rango[1] % 1) * 60));
-      return { start, end, allDay: false };
-    }
-  }
-  // Fallback: evento all-day
   return { start: base, end: base, allDay: true };
 }
 
@@ -3335,13 +3464,23 @@ function formatearFichaCalendar(p) {
   let body = '';
   body += `👤 ${p.cliente || '-'} | 📅 ${fechaStr}${telStr}${dirStr}${horarioStr}\n\n`;
   body += `🧑‍💼 VENDEDOR: ${p.vendedor || '-'}\n\n`;
+  // Estado del pedido: siempre explícito
+  const baseCal = estadoBase(p);
+  const excCal = hayExcepciones(p.items, baseCal);
+  body += baseCal === 'mixto'
+    ? `🌡️ ESTADO: 🔀 MIXTO — se indica por ítem\n\n`
+    : `🌡️ ESTADO: ${estadoTxt(baseCal).toUpperCase()}${excCal ? ' (salvo lo marcado)' : ''}\n\n`;
   body += `📦 PEDIDO:\n`;
   (p.items || []).forEach(it => {
     const sinCant = !it.pesoOCantidad || it.pesoOCantidad <= 0;
-    const qty = sinCant ? '⏳ pendiente de ' + (it.tipo === 'kg' ? 'pesar' : 'contar') : (it.tipo === 'kg' ? it.pesoOCantidad.toFixed(3) + 'kg' : it.pesoOCantidad + 'u');
-    const estadoEmoji = it.estado === 'fresco' ? ' 🥩' : it.estado === 'congelado' ? ' ❄️' : '';
+    const qty = sinCant ? '⏳ pendiente de ' + (it.tipo === 'kg' ? 'pesar' : 'contar') : formatCant(it);
+    // Marcamos el ítem sólo si va distinto al resto del pedido
+    const estadoEmoji = esExcepcionEstado(it, baseCal) ? ' ' + estadoEmo(it.estado) : '';
     const varianteTxt = it.variante ? ' (' + it.variante + ')' : '';
-    body += `   • ${it.producto}${varianteTxt} — ${qty}${estadoEmoji}\n`;
+    const desgloseTxt = textoDesglose(it);
+    const detalleTxt = desgloseTxt ? ' [' + desgloseTxt + ']' : '';
+    const bonifTxt = it.sinCargo ? ' — 🎁 sin cargo' : '';
+    body += `   • ${it.producto}${varianteTxt}${detalleTxt} — ${qty}${estadoEmoji}${bonifTxt}\n`;
   });
   body += `\n`;
   body += `📍 REFERENCIA DE ENTREGA:\n   ___\n\n`;
@@ -3363,7 +3502,9 @@ function tituloCalendar(p) {
 function generarLinkCalendar(p) {
   const fh = calcularFechaHoraCalendar(p);
   if (!fh) return null;
-  const fechas = formatDateCalendar(fh.start, fh.allDay) + '/' + formatDateCalendar(fh.end, fh.allDay);
+  // En all-day, Google Calendar toma la fecha de fin como EXCLUSIVA → sumamos un día
+  const finLink = fh.allDay ? new Date(fh.end.getFullYear(), fh.end.getMonth(), fh.end.getDate() + 1) : fh.end;
+  const fechas = formatDateCalendar(fh.start, fh.allDay) + '/' + formatDateCalendar(finLink, fh.allDay);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: tituloCalendar(p),
