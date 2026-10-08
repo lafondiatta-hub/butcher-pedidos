@@ -2582,12 +2582,33 @@ function fmtFechaHora(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) + ' ' + d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
 }
+// Tipo de cambio del día: dólar cripto (compra), que es lo que da Lemon al vender USD.
+// Fuente: dolarapi.com. Si falla, usa la última cotización guardada.
+let cajaTC = null, cajaTCCargando = false;
+let cajaMoneda = (() => { try { return localStorage.getItem('cajaMoneda') || 'ARS'; } catch(e) { return 'ARS'; } })();
+async function cargarTCCaja() {
+  if (cajaTCCargando) return;
+  cajaTCCargando = true;
+  try {
+    const r = await fetch('https://dolarapi.com/v1/dolares/cripto');
+    const j = await r.json();
+    if (j && j.compra > 0) cajaTC = { valor: Number(j.compra), fecha: j.fechaActualizacion || new Date().toISOString() };
+  } catch (e) { console.error('TC', e); }
+  cajaTCCargando = false;
+  if (document.getElementById('app').getAttribute('data-vista') === 'caja' && !cajaEditando) renderCaja();
+}
+function setMonedaCaja(m) { cajaMoneda = m; try { localStorage.setItem('cajaMoneda', m); } catch(e) {} renderCaja(); }
 function renderCaja() {
   const app = document.getElementById('app');
   app.setAttribute('data-vista', 'caja');
   cajaEditando = false;
   const s = cajaSaldos || {};
-  const lemon = Number(s.lemon) || 0, usd = Number(s.usd) || 0, cot = Number(s.cotizacion) || 0;
+  const lemon = Number(s.lemon) || 0, usd = Number(s.usd) || 0;
+  const cot = (cajaTC && cajaTC.valor) || Number(s.cotizacion) || 0;
+  const enUSD = cajaMoneda === 'USD' && cot > 0;
+  // Muestra un monto en pesos en la moneda elegida
+  const m = (ars) => enUSD ? 'US$' + formatNum(ars / cot) : '$' + formatNum(ars);
+  const otra = (ars) => cot > 0 ? (enUSD ? '$' + formatNum(ars) : 'US$' + formatNum(ars / cot)) : '';
   // Nos deben: pedidos pendientes + saldo de los parciales, agrupado por cliente
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const porCliente = {};
@@ -2605,7 +2626,16 @@ function renderCaja() {
     if (f && (!c.masViejo || f < c.masViejo)) c.masViejo = f;
   });
   const deudores = Object.values(porCliente).sort((a, b) => b.monto - a.monto);
-  const disponible = lemon + usd * cot;
+  const usdEnPesos = usd * cot;
+  const disponible = lemon + usdEnPesos;
+  const tile = (label, valor, sub, color, bg, onclick) => `<div ${onclick?`onclick="${onclick}" `:''}style="${onclick?'cursor:pointer;':''}background:${bg};padding:12px;border-radius:8px;text-align:center;border-left:3px solid ${color};">
+      <div style="font-size:11px;color:#666;text-transform:uppercase;">${label}</div>
+      <div style="font-size:19px;font-weight:700;color:${color};">${valor}</div>
+      ${sub?`<div style="font-size:11px;color:#777;">${sub}</div>`:''}</div>`;
+  const btnMon = (val, lbl) => `<button onclick="setMonedaCaja('${val}')" style="flex:1;cursor:pointer;font-family:inherit;font-weight:700;padding:8px;border-radius:8px;border:2px solid var(--navy);background:${cajaMoneda===val?'var(--navy)':'white'};color:${cajaMoneda===val?'white':'var(--navy)'};">${lbl}</button>`;
+  const tcLine = cajaTC ? `Dólar cripto (compra) hoy: <b>$${formatNum(cajaTC.valor)}</b> · ${fmtFechaHora(cajaTC.fecha)}`
+    : cot > 0 ? `Sin conexión a la cotización — uso la última guardada: <b>$${formatNum(cot)}</b>`
+    : 'Buscando cotización del día…';
   const deudoresHTML = deudores.length === 0
     ? '<div class="cart-empty">Nadie nos debe 🎉</div>'
     : deudores.map(c => {
@@ -2614,35 +2644,37 @@ function renderCaja() {
         return `<div class="cliente-clickable" onclick="verDeudaCliente(${JSON.stringify(c.cliente).replace(/"/g, '&quot;')})" style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid #eee;">
           <div><div style="font-weight:600;color:var(--navy);">${escapeHtml(c.cliente)}</div>
           <div style="font-size:11px;color:${col};">${c.n} pedido${c.n!==1?'s':''} · el más viejo hace ${dias} día${dias!==1?'s':''}</div></div>
-          <div style="font-weight:700;color:var(--meat-red);white-space:nowrap;">$${formatNum(c.monto)}</div></div>`;
+          <div style="font-weight:700;color:var(--meat-red);white-space:nowrap;">${m(c.monto)}</div></div>`;
       }).join('');
   const histHTML = !cajaHistorial ? '<div style="font-size:12px;color:#999;text-align:center;">Cargando…</div>'
     : cajaHistorial.length === 0 ? '<div style="font-size:12px;color:#999;text-align:center;">Todavía no hay cargas</div>'
     : cajaHistorial.slice(0, 8).map(h => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid #f0f0f0;">
         <span style="color:#666;">${fmtFechaHora(h.actualizado)}</span>
-        <span>Lemon <b>$${formatNum(h.lemon||0)}</b> · USD <b>${formatNum(h.usd||0)}</b></span></div>`).join('');
+        <span>$ <b>${formatNum(h.lemon||0)}</b> · US$ <b>${formatNum(h.usd||0)}</b></span></div>`).join('');
   app.innerHTML = `
     ${renderTabBar('caja')}
     <div class="header"><button class="btn-back" onclick="renderInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Caja</p></div>
     <div class="card"><h2>💰 Dónde está la plata</h2>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">${btnMon('ARS', 'Ver en $ pesos')}${btnMon('USD', 'Ver en US$')}</div>
+      <div style="font-size:11px;color:#666;text-align:center;margin-bottom:12px;">${tcLine}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        ${miniStat('Saldo Lemon', '$'+formatNum(lemon), 'var(--navy)', 'var(--cream)')}
-        ${miniStat('Saldo USD', 'US$'+formatNum(usd), '#1565c0', '#e3f2fd')}
+        ${tile('Pesos en Lemon', m(lemon), otra(lemon), 'var(--navy)', 'var(--cream)')}
+        ${tile('USD en Lemon', enUSD ? 'US$'+formatNum(usd) : (cot ? '$'+formatNum(usdEnPesos) : 'US$'+formatNum(usd)), cot ? (enUSD ? '$'+formatNum(usdEnPesos) : 'US$'+formatNum(usd)) : '', '#1565c0', '#e3f2fd')}
       </div>
-      <div style="margin-top:10px;">${miniStat('Nos deben', '$'+formatNum(nosDeben), 'var(--meat-red)', '#fbeaea', "irAPedidosCon({estado:'impago'})")}</div>
+      <div style="margin-top:10px;">${tile('Nos deben', m(nosDeben), otra(nosDeben) + ' · ver →', 'var(--meat-red)', '#fbeaea', "irAPedidosCon({estado:'impago'})")}</div>
       ${cot > 0 ? `<div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:12px;border-radius:8px;margin-top:10px;font-size:13px;line-height:1.7;">
-        <div style="display:flex;justify-content:space-between;"><span>Disponible hoy (Lemon + USD × $${formatNum(cot)})</span><b>$${formatNum(disponible)}</b></div>
-        <div style="display:flex;justify-content:space-between;"><span>+ Nos deben</span><b>$${formatNum(nosDeben)}</b></div>
-        <div style="display:flex;justify-content:space-between;border-top:1px solid #c8e6c9;margin-top:4px;padding-top:4px;font-size:15px;color:#1b5e20;"><span><b>Total si cobramos todo</b></span><b>$${formatNum(disponible + nosDeben)}</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>Disponible en Lemon</span><b>${m(disponible)}</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>+ Nos deben</span><b>${m(nosDeben)}</b></div>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid #c8e6c9;margin-top:4px;padding-top:4px;font-size:15px;color:#1b5e20;"><span><b>Total si cobramos todo</b></span><b>${m(disponible + nosDeben)}</b></div>
+        <div style="text-align:right;font-size:11px;color:#558b2f;">${otra(disponible + nosDeben)}</div>
       </div>` : ''}
-      <div style="font-size:11px;color:#999;text-align:center;margin-top:10px;">${s.actualizado ? 'Saldos actualizados: ' + fmtFechaHora(s.actualizado) : 'Todavía no se cargaron saldos'}</div>
+      <div style="font-size:11px;color:#999;text-align:center;margin-top:10px;">${s.actualizado ? 'Saldos cargados: ' + fmtFechaHora(s.actualizado) : 'Todavía no se cargaron saldos'}</div>
     </div>
-    <div class="card"><h2>✏️ Actualizar saldos</h2>
+    <div class="card"><h2>✏️ Actualizar saldos de Lemon</h2>
       <div class="form-row">
-        <div><label>Saldo Lemon ($)</label><input type="text" inputmode="decimal" id="cajaLemon" value="${s.lemon!=null?formatNum(lemon):''}" placeholder="Ej: 1.250.000" oninput="cajaEditando=true"></div>
-        <div><label>Saldo USD (US$)</label><input type="text" inputmode="decimal" id="cajaUsd" value="${s.usd!=null?formatNum(usd):''}" placeholder="Ej: 800" oninput="cajaEditando=true"></div>
+        <div><label>Pesos en Lemon ($)</label><input type="text" inputmode="decimal" id="cajaLemon" value="${s.lemon!=null?formatNum(lemon):''}" placeholder="Ej: 1.250.000" oninput="cajaEditando=true"></div>
+        <div><label>USD en Lemon (US$)</label><input type="text" inputmode="decimal" id="cajaUsd" value="${s.usd!=null?formatNum(usd):''}" placeholder="Ej: 800" oninput="cajaEditando=true"></div>
       </div>
-      <div class="form-row-full"><label>Cotización dólar (opcional, para el total en pesos)</label><input type="text" inputmode="decimal" id="cajaCot" value="${cot?formatNum(cot):''}" placeholder="Ej: 1.420" oninput="cajaEditando=true"></div>
       <button class="btn btn-meat" onclick="guardarCaja()" style="margin-top:10px;">💾 Guardar saldos</button>
     </div>
     <div class="card"><h2>📒 Quién nos debe (${deudores.length})</h2>${deudoresHTML}</div>
@@ -2650,6 +2682,7 @@ function renderCaja() {
   `;
   window.scrollTo(0, 0);
   if (!cajaHistorial) cargarHistorialCaja();
+  if (!cajaTC) cargarTCCaja();
 }
 async function cargarHistorialCaja() {
   try {
@@ -2662,9 +2695,9 @@ async function cargarHistorialCaja() {
 async function guardarCaja() {
   const lemon = parseMontoAR(document.getElementById('cajaLemon').value);
   const usd = parseMontoAR(document.getElementById('cajaUsd').value);
-  const cot = parseMontoAR(document.getElementById('cajaCot').value);
-  if (lemon === null || usd === null) { showToast('Completá Lemon y USD (pueden ser 0)', true); return; }
-  const reg = { lemon, usd, cotizacion: cot || 0, actualizado: new Date().toISOString(), por: (config && config.vendedor) || '' };
+  const cot = (cajaTC && cajaTC.valor) || (cajaSaldos && cajaSaldos.cotizacion) || 0;
+  if (lemon === null || usd === null) { showToast('Completá pesos y USD (pueden ser 0)', true); return; }
+  const reg = { lemon, usd, cotizacion: cot, actualizado: new Date().toISOString(), por: (config && config.vendedor) || '' };
   try {
     const { doc, setDoc, collection, addDoc } = window.firebaseFns;
     const db = window.firebaseDB;
