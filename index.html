@@ -2582,7 +2582,7 @@ function fmtFechaHora(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) + ' ' + d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
 }
-// Tipo de cambio del día: dólar cripto (compra), que es lo que da Lemon al vender USD.
+// Tipo de cambio del día: dólar blue (compra), pedido por Santi 08/10.
 // Fuente: dolarapi.com. Si falla, usa la última cotización guardada.
 let cajaTC = null, cajaTCCargando = false;
 let cajaMoneda = (() => { try { return localStorage.getItem('cajaMoneda') || 'ARS'; } catch(e) { return 'ARS'; } })();
@@ -2590,7 +2590,7 @@ async function cargarTCCaja() {
   if (cajaTCCargando) return;
   cajaTCCargando = true;
   try {
-    const r = await fetch('https://dolarapi.com/v1/dolares/cripto');
+    const r = await fetch('https://dolarapi.com/v1/dolares/blue');
     const j = await r.json();
     if (j && j.compra > 0) cajaTC = { valor: Number(j.compra), fecha: j.fechaActualizacion || new Date().toISOString() };
   } catch (e) { console.error('TC', e); }
@@ -2633,7 +2633,7 @@ function renderCaja() {
       <div style="font-size:19px;font-weight:700;color:${color};">${valor}</div>
       ${sub?`<div style="font-size:11px;color:#777;">${sub}</div>`:''}</div>`;
   const btnMon = (val, lbl) => `<button onclick="setMonedaCaja('${val}')" style="flex:1;cursor:pointer;font-family:inherit;font-weight:700;padding:8px;border-radius:8px;border:2px solid var(--navy);background:${cajaMoneda===val?'var(--navy)':'white'};color:${cajaMoneda===val?'white':'var(--navy)'};">${lbl}</button>`;
-  const tcLine = cajaTC ? `Dólar cripto (compra) hoy: <b>$${formatNum(cajaTC.valor)}</b> · ${fmtFechaHora(cajaTC.fecha)}`
+  const tcLine = cajaTC ? `Dólar blue (compra) hoy: <b>$${formatNum(cajaTC.valor)}</b> · ${fmtFechaHora(cajaTC.fecha)}`
     : cot > 0 ? `Sin conexión a la cotización — uso la última guardada: <b>$${formatNum(cot)}</b>`
     : 'Buscando cotización del día…';
   const deudoresHTML = deudores.length === 0
