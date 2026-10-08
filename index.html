@@ -109,7 +109,7 @@ body {
 .cliente-clickable:hover { background: #fafafa; }
 .tabbar {
   position: sticky; top: 0; z-index: 50;
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
   background: #f0f0f0; padding: 10px 0 12px; margin-bottom: 12px;
 }
 .tab-btn {
@@ -651,6 +651,7 @@ let estadoPedidoDefault = 'fresco'; // base del pedido: 'fresco' | 'congelado' (
 let clienteSeleccionado = null;
 let firebaseListo = false;
 let unsubscribers = [];
+let cajaSaldos = null, cajaEditando = false, cajaHistorial = null;
 let productoSeleccionadoIdx = null;
 // CAMBIO 2: índice del ítem que se está editando (-1 = agregar nuevo)
 let editandoItemIdx = -1;
@@ -728,6 +729,12 @@ function suscribirseACambios() {
   unsubscribers.push(u1);
   const u2 = onSnapshot(collection(db, 'clientes'), (s) => { clientes = s.docs.map(d => ({ _id: d.id, ...d.data() })); });
   unsubscribers.push(u2);
+  const u3 = onSnapshot(collection(db, 'caja'), (s) => {
+    const d = s.docs.find(x => x.id === 'saldos');
+    cajaSaldos = d ? d.data() : null;
+    if (document.getElementById('app').getAttribute('data-vista') === 'caja' && !cajaEditando) renderCaja();
+  }, (e) => console.error('caja', e));
+  unsubscribers.push(u3);
 }
 
 async function migrarDatosLocales(localData) {
@@ -991,6 +998,7 @@ function renderTabBar(activa) {
     <button class="tab-btn ${activa==='pedidos'?'active':''}" onclick="renderPedidos()"><span class="tab-ico">📋</span><span class="tab-lbl">Pedidos</span>${badge}</button>
     <button class="tab-btn ${activa==='resumenes'?'active':''}" onclick="renderResumenes()"><span class="tab-ico">📊</span><span class="tab-lbl">Resúmenes</span></button>
     <button class="tab-btn ${activa==='reportes'?'active':''}" onclick="renderReportes()"><span class="tab-ico">📈</span><span class="tab-lbl">Reportes</span></button>
+    <button class="tab-btn ${activa==='caja'?'active':''}" onclick="renderCaja()"><span class="tab-ico">💰</span><span class="tab-lbl">Caja</span></button>
   </div>`;
 }
 
@@ -1039,7 +1047,7 @@ function renderInicio() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         ${miniStat('Pedidos del mes', pedMes, 'var(--navy)', 'var(--cream)')}
         ${miniStat('Facturado del mes', '$'+formatNum(factMes), 'var(--navy)', 'var(--cream)')}
-        ${miniStat('Por cobrar', '$'+formatNum(porCobrar), 'var(--meat-red)', '#fbeaea', "irAPedidosCon({estado:'pendiente'})")}
+        ${miniStat('Por cobrar', '$'+formatNum(porCobrar), 'var(--meat-red)', '#fbeaea', "irAPedidosCon({estado:'impago'})")}
         ${miniStat('Entregas hoy', entHoy, '#e65100', '#fff3e0', "irAPedidosCon({fecha:'hoy'})")}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
@@ -2457,7 +2465,8 @@ function renderPedidos() {
   document.getElementById('app').setAttribute('data-vista', 'pedidos');
   const r = rangoFechas();
   const pf = pedidos.filter(p => {
-    if (filtroEstado !== 'todos' && (p.estado||'pendiente') !== filtroEstado) return false;
+    if (filtroEstado === 'impago') { if ((p.estado||'pendiente') === 'pagado') return false; }
+    else if (filtroEstado !== 'todos' && (p.estado||'pendiente') !== filtroEstado) return false;
     if (filtroVendedor !== 'todos' && (p.vendedor||'') !== filtroVendedor) return false;
     // Búsqueda: por nombre de cliente o por número de pedido (#)
     const q = normalizar(filtroCliente);
@@ -2500,13 +2509,33 @@ function renderPedidos() {
          <span style="font-size:12px;color:#e65100;font-weight:600;">Ver →</span></div>`
     : '';
   const vendedores = Array.from(new Set(pedidos.map(p => p.vendedor).filter(Boolean))).sort();
+  // Chips rápidos: Falta pagar / Pagados / Todos (sobre todos los pedidos)
+  let nImp = 0, mImp = 0, nPag = 0, mPag = 0;
+  pedidos.forEach(p => {
+    const est = p.estado || 'pendiente', tot = p.totalFinal || 0;
+    if (est === 'pagado') { nPag++; mPag += tot; }
+    else { nImp++; mImp += tot - (est === 'parcial' ? (p.montoParcial||0) : 0); }
+  });
+  const chipEstado = (val, label, n, monto, color, bg) => {
+    const on = filtroEstado === val;
+    return `<button onclick="cambiarFiltroEstado('${val}')" style="cursor:pointer;font-family:inherit;text-align:center;padding:10px 6px;border-radius:8px;border:2px solid ${color};background:${on?color:bg};color:${on?'white':color};">
+      <div style="font-size:12px;font-weight:700;">${label}</div>
+      <div style="font-size:15px;font-weight:700;">${n}</div>
+      ${monto!==null?`<div style="font-size:10.5px;font-weight:600;">$${formatNum(monto)}</div>`:''}</button>`;
+  };
+  const chipsEstado = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+    ${chipEstado('impago', '💸 Falta pagar', nImp, mImp, 'var(--meat-red)', '#fbeaea')}
+    ${chipEstado('pagado', '✅ Pagados', nPag, mPag, '#2e7d32', '#e8f5e9')}
+    ${chipEstado('todos', '📋 Todos', pedidos.length, null, 'var(--navy)', 'var(--cream)')}
+  </div>`;
   const hayFiltro = filtroEstado!=='todos' || filtroVendedor!=='todos' || filtroCliente || filtroFecha!=='todos';
   document.getElementById('app').innerHTML = `
     ${renderTabBar('pedidos')}
     <div class="header"><button class="btn-back" onclick="renderInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Seguimiento</p></div>
     ${bannerHoy}
+    ${chipsEstado}
     <div class="card"><h2>🔍 Filtros</h2>
-      <div class="form-row"><div><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
+      <div class="form-row"><div><label>Estado</label><select onchange="cambiarFiltroEstado(this.value)"><option value="todos" ${filtroEstado==='todos'?'selected':''}>Todos</option><option value="impago" ${filtroEstado==='impago'?'selected':''}>💸 Falta pagar (todo)</option><option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option><option value="parcial" ${filtroEstado==='parcial'?'selected':''}>💵 Parcial</option><option value="pagado" ${filtroEstado==='pagado'?'selected':''}>✅ Pagados</option></select></div>
       <div><label>Vendedor</label><select onchange="cambiarFiltroVendedor(this.value)"><option value="todos">Todos</option>${vendedores.map(v => `<option value="${escapeHtml(v)}" ${filtroVendedor===v?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select></div></div>
       <div class="form-row-full"><label>Buscar cliente o N° de pedido</label><input type="text" value="${escapeHtml(filtroCliente)}" oninput="cambiarFiltroCliente(this.value)" placeholder="Nombre o #12"></div>
       <div class="form-row-full" style="margin-top:10px;"><label>Entrega</label>
@@ -2532,6 +2561,125 @@ function renderPedidos() {
     <div class="card"><h2>📋 Pedidos (${pf.length})</h2>${pf.length===0?'<div class="cart-empty">Sin resultados</div>':pf.map(p => renderPedidoCard(p)).join('')}</div>
   `;
   window.scrollTo(0, 0);
+}
+
+/* ============================================================
+ * VISTA CAJA — JP carga saldo Lemon (ARS) y USD a mano.
+ * "Nos deben" se calcula solo con los pedidos impagos.
+ * Firestore: caja/saldos (último valor) + cajaHistorial (cada carga).
+ * ============================================================ */
+// Acepta "1.234.567,50", "1234567.5", "1500" o "$ 1.500"
+function parseMontoAR(txt) {
+  let t = String(txt || '').replace(/[^\d.,-]/g, '');
+  if (!t) return null;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if ((t.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(t)) t = t.replace(/\./g, '');
+  const n = parseFloat(t);
+  return isNaN(n) ? null : n;
+}
+function fmtFechaHora(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) + ' ' + d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
+}
+function renderCaja() {
+  const app = document.getElementById('app');
+  app.setAttribute('data-vista', 'caja');
+  cajaEditando = false;
+  const s = cajaSaldos || {};
+  const lemon = Number(s.lemon) || 0, usd = Number(s.usd) || 0, cot = Number(s.cotizacion) || 0;
+  // Nos deben: pedidos pendientes + saldo de los parciales, agrupado por cliente
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const porCliente = {};
+  let nosDeben = 0;
+  pedidos.forEach(p => {
+    const est = p.estado || 'pendiente';
+    if (est === 'pagado') return;
+    const debe = (p.totalFinal || 0) - (est === 'parcial' ? (p.montoParcial || 0) : 0);
+    if (debe <= 0) return;
+    nosDeben += debe;
+    const k = (p.cliente || 'Sin nombre').trim();
+    const c = porCliente[k] || (porCliente[k] = { cliente: k, monto: 0, n: 0, masViejo: null });
+    c.monto += debe; c.n++;
+    const f = p.fecha ? new Date(p.fecha) : null;
+    if (f && (!c.masViejo || f < c.masViejo)) c.masViejo = f;
+  });
+  const deudores = Object.values(porCliente).sort((a, b) => b.monto - a.monto);
+  const disponible = lemon + usd * cot;
+  const deudoresHTML = deudores.length === 0
+    ? '<div class="cart-empty">Nadie nos debe 🎉</div>'
+    : deudores.map(c => {
+        const dias = c.masViejo ? Math.floor((hoy - c.masViejo) / 86400000) : 0;
+        const col = dias > 60 ? 'var(--meat-red)' : dias > 30 ? '#e65100' : '#666';
+        return `<div class="cliente-clickable" onclick="verDeudaCliente(${JSON.stringify(c.cliente).replace(/"/g, '&quot;')})" style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid #eee;">
+          <div><div style="font-weight:600;color:var(--navy);">${escapeHtml(c.cliente)}</div>
+          <div style="font-size:11px;color:${col};">${c.n} pedido${c.n!==1?'s':''} · el más viejo hace ${dias} día${dias!==1?'s':''}</div></div>
+          <div style="font-weight:700;color:var(--meat-red);white-space:nowrap;">$${formatNum(c.monto)}</div></div>`;
+      }).join('');
+  const histHTML = !cajaHistorial ? '<div style="font-size:12px;color:#999;text-align:center;">Cargando…</div>'
+    : cajaHistorial.length === 0 ? '<div style="font-size:12px;color:#999;text-align:center;">Todavía no hay cargas</div>'
+    : cajaHistorial.slice(0, 8).map(h => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="color:#666;">${fmtFechaHora(h.actualizado)}</span>
+        <span>Lemon <b>$${formatNum(h.lemon||0)}</b> · USD <b>${formatNum(h.usd||0)}</b></span></div>`).join('');
+  app.innerHTML = `
+    ${renderTabBar('caja')}
+    <div class="header"><button class="btn-back" onclick="renderInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Caja</p></div>
+    <div class="card"><h2>💰 Dónde está la plata</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${miniStat('Saldo Lemon', '$'+formatNum(lemon), 'var(--navy)', 'var(--cream)')}
+        ${miniStat('Saldo USD', 'US$'+formatNum(usd), '#1565c0', '#e3f2fd')}
+      </div>
+      <div style="margin-top:10px;">${miniStat('Nos deben', '$'+formatNum(nosDeben), 'var(--meat-red)', '#fbeaea', "irAPedidosCon({estado:'impago'})")}</div>
+      ${cot > 0 ? `<div style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:12px;border-radius:8px;margin-top:10px;font-size:13px;line-height:1.7;">
+        <div style="display:flex;justify-content:space-between;"><span>Disponible hoy (Lemon + USD × $${formatNum(cot)})</span><b>$${formatNum(disponible)}</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>+ Nos deben</span><b>$${formatNum(nosDeben)}</b></div>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid #c8e6c9;margin-top:4px;padding-top:4px;font-size:15px;color:#1b5e20;"><span><b>Total si cobramos todo</b></span><b>$${formatNum(disponible + nosDeben)}</b></div>
+      </div>` : ''}
+      <div style="font-size:11px;color:#999;text-align:center;margin-top:10px;">${s.actualizado ? 'Saldos actualizados: ' + fmtFechaHora(s.actualizado) : 'Todavía no se cargaron saldos'}</div>
+    </div>
+    <div class="card"><h2>✏️ Actualizar saldos</h2>
+      <div class="form-row">
+        <div><label>Saldo Lemon ($)</label><input type="text" inputmode="decimal" id="cajaLemon" value="${s.lemon!=null?formatNum(lemon):''}" placeholder="Ej: 1.250.000" oninput="cajaEditando=true"></div>
+        <div><label>Saldo USD (US$)</label><input type="text" inputmode="decimal" id="cajaUsd" value="${s.usd!=null?formatNum(usd):''}" placeholder="Ej: 800" oninput="cajaEditando=true"></div>
+      </div>
+      <div class="form-row-full"><label>Cotización dólar (opcional, para el total en pesos)</label><input type="text" inputmode="decimal" id="cajaCot" value="${cot?formatNum(cot):''}" placeholder="Ej: 1.420" oninput="cajaEditando=true"></div>
+      <button class="btn btn-meat" onclick="guardarCaja()" style="margin-top:10px;">💾 Guardar saldos</button>
+    </div>
+    <div class="card"><h2>📒 Quién nos debe (${deudores.length})</h2>${deudoresHTML}</div>
+    <div class="card"><h2>🕓 Últimas cargas</h2>${histHTML}</div>
+  `;
+  window.scrollTo(0, 0);
+  if (!cajaHistorial) cargarHistorialCaja();
+}
+async function cargarHistorialCaja() {
+  try {
+    const { collection, getDocs } = window.firebaseFns;
+    const d = await getDocs(collection(window.firebaseDB, 'cajaHistorial'));
+    cajaHistorial = d.docs.map(x => x.data()).sort((a, b) => String(b.actualizado).localeCompare(String(a.actualizado)));
+  } catch (e) { console.error(e); cajaHistorial = []; }
+  if (document.getElementById('app').getAttribute('data-vista') === 'caja' && !cajaEditando) renderCaja();
+}
+async function guardarCaja() {
+  const lemon = parseMontoAR(document.getElementById('cajaLemon').value);
+  const usd = parseMontoAR(document.getElementById('cajaUsd').value);
+  const cot = parseMontoAR(document.getElementById('cajaCot').value);
+  if (lemon === null || usd === null) { showToast('Completá Lemon y USD (pueden ser 0)', true); return; }
+  const reg = { lemon, usd, cotizacion: cot || 0, actualizado: new Date().toISOString(), por: (config && config.vendedor) || '' };
+  try {
+    const { doc, setDoc, collection, addDoc } = window.firebaseFns;
+    const db = window.firebaseDB;
+    await setDoc(doc(db, 'caja', 'saldos'), reg);
+    await addDoc(collection(db, 'cajaHistorial'), reg);
+    cajaSaldos = reg;
+    if (cajaHistorial) cajaHistorial.unshift(reg);
+    showToast('✓ Saldos guardados', false, 'success');
+    renderCaja();
+  } catch (e) { console.error(e); showToast('No se pudo guardar: ' + e.message, true); }
+}
+function verDeudaCliente(nombre) {
+  irAPedidosCon({ estado: 'impago' });
+  filtroCliente = nombre;
+  renderPedidos();
 }
 
 /* ============================================================
