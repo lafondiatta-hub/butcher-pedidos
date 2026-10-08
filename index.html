@@ -2651,9 +2651,45 @@ function renderCaja() {
     : cajaHistorial.slice(0, 8).map(h => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid #f0f0f0;">
         <span style="color:#666;">${fmtFechaHora(h.actualizado)}</span>
         <span>$ <b>${formatNum(h.lemon||0)}</b> · US$ <b>${formatNum(h.usd||0)}</b></span></div>`).join('');
+  // Posición mes a mes: la última carga de cada mes es la foto del mes.
+  // Posición = pesos Lemon + USD × blue de ese día + nos deben de ese día. Se compara en USD.
+  const porMes = {};
+  (cajaHistorial || []).forEach(h => {
+    const k = String(h.actualizado || '').slice(0, 7);
+    if (k && (!porMes[k] || String(h.actualizado) > String(porMes[k].actualizado))) porMes[k] = h;
+  });
+  const mesHoy = fechaLocalISO(new Date()).slice(0, 7);
+  const filasMes = Object.keys(porMes).sort().map(k => {
+    const h = porMes[k], tc = Number(h.cotizacion) || 0;
+    const ars = (Number(h.lemon) || 0) + (Number(h.usd) || 0) * tc + (Number(h.nosDeben) || 0);
+    return { k, ars, usd: tc ? ars / tc : null };
+  });
+  const mesHTML = filasMes.length === 0
+    ? '<div style="font-size:12px;color:#999;text-align:center;">Arranca con la primera carga de saldos. A fin de cada mes queda la foto de ese mes.</div>'
+    : filasMes.map((f, i) => {
+        const prev = filasMes[i - 1];
+        let delta = '<span style="color:#999;">—</span>';
+        if (prev && prev.usd && f.usd !== null) {
+          const d = f.usd - prev.usd, pct = d / prev.usd * 100;
+          const col = d >= 0 ? '#2e7d32' : 'var(--meat-red)';
+          delta = `<span style="color:${col};font-weight:700;">${d >= 0 ? '▲' : '▼'} US$${formatNum(Math.abs(d))} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)</span>`;
+        }
+        const [y, mm] = f.k.split('-');
+        return `<div style="padding:9px 0;border-bottom:1px solid #eee;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <b style="color:var(--navy);">${MESES_ES[Number(mm) - 1]} ${y}${f.k === mesHoy ? ' <span style="font-size:10px;color:#e65100;">(en curso)</span>' : ''}</b>
+            <b style="color:var(--navy);">${f.usd !== null ? 'US$' + formatNum(f.usd) : '—'}</b></div>
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-top:2px;">
+            ${delta}<span style="color:#777;">$${formatNum(f.ars)}</span></div></div>`;
+      }).reverse().join('');
+  const diasSinCargar = s.actualizado ? Math.floor((Date.now() - new Date(s.actualizado)) / 86400000) : null;
+  const avisoViejo = (diasSinCargar === null || diasSinCargar > 7 || String(s.actualizado).slice(0, 7) !== mesHoy)
+    ? `<div style="background:#fff3e0;border-left:4px solid #f57c00;padding:10px 12px;border-radius:8px;margin-bottom:10px;font-size:13px;color:#e65100;font-weight:600;">⚠️ ${diasSinCargar === null ? 'Todavía no se cargaron los saldos de Lemon' : 'Los saldos tienen ' + diasSinCargar + ' día' + (diasSinCargar !== 1 ? 's' : '') + ' — actualizalos'} (más abajo)</div>`
+    : '';
   app.innerHTML = `
     ${renderTabBar('caja')}
     <div class="header"><button class="btn-back" onclick="renderInicio()">🏠 Inicio</button><img src="assets/butcher-logo.png" alt="The Butcher" class="header-logo"><p>Caja</p></div>
+    ${avisoViejo}
     <div class="card"><h2>💰 Dónde está la plata</h2>
       <div style="display:flex;gap:8px;margin-bottom:8px;">${btnMon('ARS', 'Ver en $ pesos')}${btnMon('USD', 'Ver en US$')}</div>
       <div style="font-size:11px;color:#666;text-align:center;margin-bottom:12px;">${tcLine}</div>
@@ -2677,6 +2713,9 @@ function renderCaja() {
       </div>
       <button class="btn btn-meat" onclick="guardarCaja()" style="margin-top:10px;">💾 Guardar saldos</button>
     </div>
+    <div class="card"><h2>📅 Posición mes a mes</h2>
+      <div style="font-size:11px;color:#777;margin-bottom:6px;">Lemon ($ + USD) + nos deben, con el blue del día de la carga. Cuenta la última carga de cada mes.</div>
+      ${mesHTML}</div>
     <div class="card"><h2>📒 Quién nos debe (${deudores.length})</h2>${deudoresHTML}</div>
     <div class="card"><h2>🕓 Últimas cargas</h2>${histHTML}</div>
   `;
@@ -2697,7 +2736,13 @@ async function guardarCaja() {
   const usd = parseMontoAR(document.getElementById('cajaUsd').value);
   const cot = (cajaTC && cajaTC.valor) || (cajaSaldos && cajaSaldos.cotizacion) || 0;
   if (lemon === null || usd === null) { showToast('Completá pesos y USD (pueden ser 0)', true); return; }
-  const reg = { lemon, usd, cotizacion: cot, actualizado: new Date().toISOString(), por: (config && config.vendedor) || '' };
+  const nosDeben = pedidos.reduce((t, p) => {
+    const est = p.estado || 'pendiente';
+    if (est === 'pagado') return t;
+    const debe = (p.totalFinal || 0) - (est === 'parcial' ? (p.montoParcial || 0) : 0);
+    return debe > 0 ? t + debe : t;
+  }, 0);
+  const reg = { lemon, usd, cotizacion: cot, nosDeben, actualizado: new Date().toISOString(), por: (config && config.vendedor) || '' };
   try {
     const { doc, setDoc, collection, addDoc } = window.firebaseFns;
     const db = window.firebaseDB;
